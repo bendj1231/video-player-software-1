@@ -1,8 +1,9 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Loader2, Trash2, Play, Pause, RotateCcw, Download, AlertCircle } from 'lucide-react';
+import { X, Loader2, Trash2, Play, Pause, RotateCcw, Download, AlertCircle, Film } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { getVideoPreview } from '../lib/zip';
+import { needsTranscoding, transcodeVideo, getVideoFormat } from '../lib/ffmpeg';
 
 export function VideoPlayerModal({ 
   zipBlob, 
@@ -27,6 +28,8 @@ export function VideoPlayerModal({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [transcodingProgress, setTranscodingProgress] = useState(0);
+  const [isTranscoding, setIsTranscoding] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -42,15 +45,44 @@ export function VideoPlayerModal({
       setVideoError(null);
       setVideoType(zipBlob.type);
       console.log('Video MIME type:', zipBlob.type);
+      
       try {
-        const result = await getVideoPreview(zipBlob);
-        if (result) {
-          console.log('Video loaded successfully:', result.url);
-          setVideoUrl(result.url);
-          cleanupFn = result.cleanup;
+        // Check if video needs transcoding (AVI, MKV, etc.)
+        if (needsTranscoding(zipBlob.type)) {
+          console.log('Video needs transcoding, starting FFmpeg...');
+          setIsTranscoding(true);
+          setTranscodingProgress(0);
+          
+          const format = getVideoFormat(zipBlob.type);
+          const transcodedBlob = await transcodeVideo(
+            zipBlob, 
+            format,
+            ({ progress }) => setTranscodingProgress(progress)
+          );
+          
+          setIsTranscoding(false);
+          
+          if (transcodedBlob) {
+            console.log('Transcoding complete, loading video...');
+            const result = await getVideoPreview(transcodedBlob);
+            if (result) {
+              setVideoUrl(result.url);
+              cleanupFn = result.cleanup;
+            }
+          } else {
+            setError('Failed to transcode video. Please download to play locally.');
+          }
         } else {
-          console.error('No video found in blob');
-          setError("No video file found.");
+          // Native supported format
+          const result = await getVideoPreview(zipBlob);
+          if (result) {
+            console.log('Video loaded successfully:', result.url);
+            setVideoUrl(result.url);
+            cleanupFn = result.cleanup;
+          } else {
+            console.error('No video found in blob');
+            setError("No video file found.");
+          }
         }
       } catch (err) {
         console.error('Failed to load video:', err);
@@ -239,7 +271,22 @@ export function VideoPlayerModal({
             </button>
           )}
 
-          {loading && (
+          {isTranscoding && (
+            <div className="flex flex-col items-center gap-4 text-white/70 max-w-md w-full px-8">
+              <Film size={48} className="text-emerald-400" />
+              <p className="text-lg">Converting video for playback...</p>
+              <div className="w-full bg-white/20 rounded-full h-2 mt-2">
+                <div 
+                  className="bg-emerald-400 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${transcodingProgress}%` }}
+                />
+              </div>
+              <p className="text-sm text-white/50">{transcodingProgress}%</p>
+              <p className="text-xs text-white/40">This may take a moment for large files</p>
+            </div>
+          )}
+
+          {!isTranscoding && loading && (
             <div className="flex flex-col items-center gap-6 text-white/70">
               <Loader2 size={48} className="animate-spin" />
               <p className="text-lg">Extracting high-quality video...</p>
