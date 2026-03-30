@@ -6,3 +6,26 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Media files - never commit user videos/photos
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.avi
+*.m4v
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+*.bmp
+*.tiff
+*.raw
+
+# User data directories
+uploads/
+media/
+cache/
+.videos/
+.photos/
