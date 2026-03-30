@@ -155,7 +155,7 @@ function FolderCard({ folder, onClick, onLoad, onUpdate, columnIndex }: { folder
           // Count files in local directory
           try {
             let count = 0;
-            const extensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.jpg', '.jpeg', '.png', '.gif', '.webp'];
+            const extensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.jfif'];
             // @ts-ignore
             for await (const entry of handle.values()) {
               if (entry.kind === 'file') {
@@ -491,7 +491,7 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
     let totalFileCount = 0;
     
     const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng'];
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
     
     // Helper to check if a folder contains media files
     async function hasMediaFiles(dirHandle: FileSystemDirectoryHandle): Promise<boolean> {
@@ -654,7 +654,7 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
     await addFolder(newFolder);
     
     const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi'];
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.jfif'];
     let fileCount = 0;
     
     for (let i = 0; i < files.length; i++) {
@@ -773,7 +773,7 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
       
       let fileCount = 0;
       const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
-      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng'];
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
       
       const readDirectory = async (dirReader: any, path: string = '') => {
         // readEntries has a limit of 100 entries, need to call repeatedly
@@ -891,7 +891,7 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
 
       // Define media extensions
       const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
-      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng'];
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
 
       // Find all media files in the archive (skip MacOS system files)
       const mediaFiles: { name: string; zipEntry: JSZip.JSZipObject }[] = [];
@@ -1054,7 +1054,7 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
       await addFolder(newFolder);
       
       const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
-      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng'];
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
       
       let fileCount = 0;
       
@@ -1098,7 +1098,7 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
     let totalFileCount = 0;
     
     const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng'];
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
     
     const { storeDirectoryHandle } = await import('../lib/fileSystem');
     
