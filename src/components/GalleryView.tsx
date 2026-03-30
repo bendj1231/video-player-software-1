@@ -776,11 +776,17 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
       const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng'];
       
       const readDirectory = async (dirReader: any, path: string = '') => {
-        const entries = await new Promise<any[]>((resolve) => {
-          dirReader.readEntries((results: any[]) => resolve(results));
-        });
+        // readEntries has a limit of 100 entries, need to call repeatedly
+        let allEntries: any[] = [];
+        let entries: any[];
+        do {
+          entries = await new Promise<any[]>((resolve) => {
+            dirReader.readEntries((results: any[]) => resolve(results));
+          });
+          allEntries = allEntries.concat(entries);
+        } while (entries.length > 0);
         
-        for (const entry of entries) {
+        for (const entry of allEntries) {
           if (entry.isFile) {
             const file = await new Promise<File>((resolve) => {
               entry.file((f: File) => resolve(f));
