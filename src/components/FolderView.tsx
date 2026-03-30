@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, ChangeEvent, DragEvent, MouseEvent } from 'react';
-import { VideoZip, getVideosByFolder, addVideoZip, deleteVideoZip, deleteFolder, dbPromise, Folder, getSubfolders, addFolder, getFolderById } from '../lib/db';
-import { ArrowLeft, Upload, Play, Cloud, RefreshCw, Loader2, Download, ImageIcon, Trash2, FolderPlus, FolderOpen, ChevronRight, Folder as FolderIcon, MoreVertical, HardDrive, CloudDownload } from 'lucide-react';
+import { VideoZip, getVideosByFolder, addVideoZip, deleteVideoZip, deleteFolder, dbPromise, Folder, getSubfolders, addFolder, getFolderById, updateFolder } from '../lib/db';
+import { ArrowLeft, Upload, Play, Cloud, RefreshCw, Loader2, Download, ImageIcon, Trash2, FolderPlus, FolderOpen, ChevronRight, Folder as FolderIcon, MoreVertical, HardDrive, CloudDownload, Calendar, Clock } from 'lucide-react';
 import { CloudSyncModal } from './CloudSyncModal';
 import { MegaImportModal } from './MegaImportModal';
 import { getVideoPreview } from '../lib/zip';
 import { initializeLocalFolder, saveFileToDirectory, getStoredDirectoryHandle } from '../lib/fileSystem';
+import { extractExifData, getBestDate, groupPhotosByDate } from '../lib/exif';
 
 interface VideoWithPreview extends VideoZip {
   previewUrl?: string;
@@ -222,6 +223,8 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
   const [isUploadingFolder, setIsUploadingFolder] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [groupedPhotos, setGroupedPhotos] = useState<Map<string, VideoWithPreview[]>>(new Map());
+  const [isLoadingDates, setIsLoadingDates] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const folderContentsInputRef = useRef<HTMLInputElement>(null);
@@ -471,7 +474,52 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     
     console.log(`Loaded ${withPreviews.length} videos, ${withPreviews.filter(v => v.previewUrl).length} with previews`);
     setVideos(withPreviews);
+    
+    // Process photo grouping if enabled
+    if (folderData?.groupByDate) {
+      await processPhotoGroups(withPreviews);
+    }
   }
+  
+  const processPhotoGroups = async (allVideos: VideoWithPreview[]) => {
+    setIsLoadingDates(true);
+    const photos = allVideos.filter(v => v.file.type.startsWith('image/') && v.previewUrl);
+    
+    // Extract EXIF dates for all photos
+    const photosWithDates = await Promise.all(
+      photos.map(async (photo) => {
+        try {
+          const exifData = await extractExifData(photo.file as File);
+          const date = getBestDate(exifData);
+          return { ...photo, date };
+        } catch {
+          return { ...photo, date: undefined };
+        }
+      })
+    );
+    
+    const timeGap = folder?.timeGapMinutes || 240; // Default 4 hours
+    const groups = groupPhotosByDate(photosWithDates, timeGap);
+    setGroupedPhotos(groups);
+    setIsLoadingDates(false);
+  };
+  
+  const handleToggleGroupByDate = async () => {
+    if (!folder) return;
+    
+    const newValue = !folder.groupByDate;
+    const updatedFolder = { ...folder, groupByDate: newValue };
+    await updateFolder(updatedFolder);
+    setFolder(updatedFolder);
+    
+    if (newValue) {
+      // Enable grouping - process photos
+      await processPhotoGroups(videos);
+    } else {
+      // Disable grouping - clear groups
+      setGroupedPhotos(new Map());
+    }
+  };
 
   const processFiles = async (files: FileList) => {
     if (!files || files.length === 0) return;

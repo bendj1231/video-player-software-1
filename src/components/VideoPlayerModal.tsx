@@ -66,6 +66,39 @@ export function VideoPlayerModal({
     };
   }, [zipBlob]);
 
+  // Keyboard controls
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle if modal is open (zipBlob exists)
+      if (!zipBlob) return;
+      
+      switch (e.key) {
+        case ' ':
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          if (videoRef.current) {
+            videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
+          }
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          if (videoRef.current) {
+            videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 10);
+          }
+          break;
+        case 'Escape':
+          onClose();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zipBlob, isPlaying, duration, onClose]);
+
   if (!zipBlob) return null;
 
   const handleDelete = () => {

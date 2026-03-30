@@ -10,7 +10,9 @@ export interface Folder {
   archiveFile?: File;
   archivePassword?: string;
   sourceType?: 'mega' | 'local';
-  parentId?: string | null; // For nested folders - null means root folder
+  parentId?: string | null;
+  groupByDate?: boolean; // Group photos by date taken (EXIF)
+  timeGapMinutes?: number; // Time gap for grouping (default 240 = 4 hours)
 }
 
 export interface VideoZip {
@@ -37,7 +39,7 @@ interface VideoVaultDB extends DBSchema {
   };
 }
 
-export const dbPromise = openDB<VideoVaultDB>('video-vault-db', 3, {
+export const dbPromise = openDB<VideoVaultDB>('video-vault-db', 4, {
   upgrade(db, oldVersion, newVersion, transaction) {
     // Create folders store
     if (!db.objectStoreNames.contains('folders')) {
@@ -47,6 +49,11 @@ export const dbPromise = openDB<VideoVaultDB>('video-vault-db', 3, {
       // Migration: add parent index to existing folders store
       const folderStore = transaction.objectStore('folders');
       folderStore.createIndex('by-parent', 'parentId');
+    }
+    
+    // Migration for version 4: add groupByDate support (no schema change needed, just default values)
+    if (oldVersion < 4) {
+      console.log('Migrating to version 4: groupByDate support enabled');
     }
     
     // Create videoZips store - always check and create if missing
@@ -73,6 +80,11 @@ export async function getFolderById(id: string): Promise<Folder | undefined> {
 }
 
 export async function addFolder(folder: Folder) {
+  const db = await dbPromise;
+  await db.put('folders', folder);
+}
+
+export async function updateFolder(folder: Folder) {
   const db = await dbPromise;
   await db.put('folders', folder);
 }
