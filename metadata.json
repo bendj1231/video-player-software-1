@@ -1,0 +1,5 @@
+{
+  "name": "Glassy Video Vault",
+  "description": "An offline video platform that extracts and plays videos from ZIP files with a glassy UI.",
+  "requestFramePermissions": []
+}
