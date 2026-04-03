@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, FolderPlus, File, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { X, FolderPlus, File, AlertCircle, CheckCircle, Loader2, Lock } from 'lucide-react';
 import { addFolder, addVideoZip, VideoZip } from '../lib/db';
+import { VirtualArchiveExplorer, getArchiveFormat } from '../lib/archive';
 import JSZip from 'jszip';
 
 interface LocalArchiveImportModalProps {
@@ -13,9 +14,12 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState('');
   const [extractionProgress, setExtractionProgress] = useState('');
+  const [password, setPassword] = useState('');
+  const [needsPassword, setNeedsPassword] = useState(false);
+  const [archiveExplorer, setArchiveExplorer] = useState<VirtualArchiveExplorer | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -30,6 +34,22 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
 
     setError('');
     setSelectedFile(file);
+    setNeedsPassword(false);
+    setPassword('');
+
+    // Try to load the archive to check if it needs a password
+    const explorer = new VirtualArchiveExplorer();
+    try {
+      await explorer.loadArchive(file);
+      setArchiveExplorer(explorer);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('password')) {
+        setNeedsPassword(true);
+        setArchiveExplorer(explorer);
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load archive');
+      }
+    }
   };
 
   const handleImport = async () => {
@@ -145,7 +165,6 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
         setExtractionProgress(`Extracted ${processedCount} of ${mediaFiles.length} files...`);
       }
 
-      setExtractionProgress('Complete!');
       onSuccess(newFolder.id);
       onClose();
     } catch (err) {

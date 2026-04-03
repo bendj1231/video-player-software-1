@@ -1,5 +1,9 @@
 import JSZip from 'jszip';
 import { extractAllTo } from 'adm-zip';
+import SevenZipFactory from '7z-wasm';
+
+// SevenZip module type
+let SevenZipModule: any = null;
 
 export interface ArchiveFile {
   name: string;
@@ -14,9 +18,32 @@ export interface ArchiveInfo {
   isEncrypted: boolean;
 }
 
+export interface ExtractionProgress {
+  fileName: string;
+  current: number;
+  total: number;
+}
+
+export interface ExtractOptions {
+  password?: string;
+  onProgress?: (progress: ExtractionProgress) => void;
+}
+
+export function getArchiveFormat(fileName: string): 'zip' | '7z' | 'rar' | 'tar' | 'unknown' {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.zip')) return 'zip';
+  if (lower.endsWith('.7z')) return '7z';
+  if (lower.endsWith('.rar')) return 'rar';
+  if (lower.endsWith('.tar') || lower.endsWith('.tar.gz') || lower.endsWith('.tgz') || 
+      lower.endsWith('.tar.bz2') || lower.endsWith('.tar.xz')) return 'tar';
+  return 'unknown';
+}
+
 export class VirtualArchiveExplorer {
   private archiveData: ArrayBuffer | null = null;
   private zip: JSZip | null = null;
+  private sevenZip: any = null;
+  private archiveFormat: 'zip' | '7z' | 'rar' | 'tar' | 'unknown' = 'unknown';
   private password: string | null = null;
   private isEncrypted = false;
   private hasPassword = false;
@@ -25,16 +52,53 @@ export class VirtualArchiveExplorer {
 
   async loadArchive(file: File): Promise<void> {
     this.archiveData = await file.arrayBuffer();
+    this.archiveFormat = getArchiveFormat(file.name);
     
+    if (this.archiveFormat === 'zip') {
+      await this.loadZip();
+    } else if (this.archiveFormat === '7z') {
+      await this.load7z();
+    } else {
+      throw new Error(`Unsupported archive format: ${file.name}`);
+    }
+  }
+
+  private async loadZip(): Promise<void> {
     try {
-      this.zip = await JSZip.loadAsync(this.archiveData);
+      this.zip = await JSZip.loadAsync(this.archiveData!);
       this.isEncrypted = false;
       this.hasPassword = false;
     } catch (error) {
       // Try with password
       this.isEncrypted = true;
       this.hasPassword = true;
-      throw new Error('Archive is password protected');
+      throw new Error('ZIP archive is password protected');
+    }
+  }
+
+  private async load7z(): Promise<void> {
+    try {
+      if (!SevenZipModule) {
+        SevenZipModule = await SevenZipFactory();
+      }
+      this.sevenZip = SevenZipModule;
+      this.sevenZip.FS.writeFile('/archive.7z', new Uint8Array(this.archiveData!));
+      
+      // Try to list contents to check if encrypted
+      try {
+        this.sevenZip.callMain(['l', '/archive.7z']);
+        this.isEncrypted = false;
+        this.hasPassword = false;
+      } catch {
+        this.isEncrypted = true;
+        this.hasPassword = true;
+        throw new Error('7z archive is password protected');
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('password')) {
+        throw error;
+      }
+      throw new Error('Failed to load 7z archive');
     }
   }
 
@@ -43,12 +107,42 @@ export class VirtualArchiveExplorer {
       throw new Error('No archive loaded');
     }
 
+    this.password = password;
+
+    if (this.archiveFormat === 'zip') {
+      await this.setPasswordZip(password);
+    } else if (this.archiveFormat === '7z') {
+      await this.setPassword7z(password);
+    }
+  }
+
+  private async setPasswordZip(password: string): Promise<void> {
     try {
-      this.zip = await JSZip.loadAsync(this.archiveData);
-      this.password = password;
+      // JSZip doesn't natively support password - use the stored password for extraction later
+      this.zip = await JSZip.loadAsync(this.archiveData!);
       this.hasPassword = false;
     } catch (error) {
-      throw new Error('Invalid password');
+      throw new Error('Invalid password for ZIP archive');
+    }
+  }
+
+  private async setPassword7z(password: string): Promise<void> {
+    try {
+      if (!SevenZipModule) {
+        SevenZipModule = await SevenZipFactory();
+      }
+      // Verify password by trying to list files
+      this.sevenZip = SevenZipModule;
+      this.sevenZip.FS.writeFile('/archive.7z', new Uint8Array(this.archiveData!));
+      const result = this.sevenZip.callMain(['l', '-p' + password, '/archive.7z']);
+      
+      if (result !== 0) {
+        throw new Error('Invalid password');
+      }
+      
+      this.hasPassword = false;
+    } catch (error) {
+      throw new Error('Invalid password for 7z archive');
     }
   }
 
