@@ -1,9 +1,23 @@
 import JSZip from 'jszip';
 import { extractAllTo } from 'adm-zip';
-import SevenZipFactory from '7z-wasm';
 
-// SevenZip module type
+// SevenZip module - loaded dynamically to avoid startup errors
 let SevenZipModule: any = null;
+let SevenZipFactory: any = null;
+
+// Dynamically import 7z-wasm only when needed
+async function getSevenZipFactory() {
+  if (!SevenZipFactory) {
+    try {
+      const module = await import('7z-wasm');
+      SevenZipFactory = module.default || module;
+    } catch (err) {
+      console.error('Failed to load 7z-wasm:', err);
+      throw new Error('7z support is not available');
+    }
+  }
+  return SevenZipFactory;
+}
 
 export interface ArchiveFile {
   name: string;
@@ -78,8 +92,9 @@ export class VirtualArchiveExplorer {
 
   private async load7z(): Promise<void> {
     try {
+      const factory = await getSevenZipFactory();
       if (!SevenZipModule) {
-        SevenZipModule = await SevenZipFactory();
+        SevenZipModule = await factory();
       }
       this.sevenZip = SevenZipModule;
       this.sevenZip.FS.writeFile('/archive.7z', new Uint8Array(this.archiveData!));
@@ -128,8 +143,9 @@ export class VirtualArchiveExplorer {
 
   private async setPassword7z(password: string): Promise<void> {
     try {
+      const factory = await getSevenZipFactory();
       if (!SevenZipModule) {
-        SevenZipModule = await SevenZipFactory();
+        SevenZipModule = await factory();
       }
       // Verify password by trying to list files
       this.sevenZip = SevenZipModule;
