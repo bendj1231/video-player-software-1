@@ -1,6 +1,5 @@
 import JSZip from 'jszip';
 import { addVideoZip, addFolder, dbPromise } from './db';
-import { extractAllTo } from 'adm-zip';
 import * as Mega from 'megajs';
 
 export interface MegaDownloadProgress {

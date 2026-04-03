@@ -1,5 +1,4 @@
 import JSZip from 'jszip';
-import { extractAllTo } from 'adm-zip';
 
 // SevenZip module - loaded dynamically to avoid startup errors
 let SevenZipModule: any = null;
@@ -183,7 +182,7 @@ export class VirtualArchiveExplorer {
     return files;
   }
 
-  async extractFile(fileName: string, tempPath: string): Promise<string> {
+  async extractFile(fileName: string): Promise<Blob> {
     if (!this.zip) {
       throw new Error('No archive loaded or password required');
     }
@@ -193,25 +192,13 @@ export class VirtualArchiveExplorer {
       throw new Error('File not found in archive');
     }
 
-    // Extract to temp directory
-    const outputPath = `${tempPath}/${fileName}`;
-    await extractAllTo(this.archiveData, tempPath, this.password);
-
-    return outputPath;
+    // Extract file as blob
+    const data = await zipEntry.async('uint8array') as Uint8Array;
+    return new Blob([data]);
   }
 
-  async extractVideoFile(fileName: string, tempPath: string): Promise<string> {
-    const extractedPath = await this.extractFile(fileName, tempPath);
-    
-    // Rename .mcgi to .mp4 if needed
-    if (fileName.toLowerCase().endsWith('.mcgi')) {
-      const mp4Path = extractedPath.replace(/\.mcgi$/i, '.mp4');
-      // In a real implementation, you'd rename the file here
-      // For now, we'll just return the path with .mp4 extension
-      return mp4Path;
-    }
-
-    return extractedPath;
+  async extractVideoFile(fileName: string): Promise<Blob> {
+    return this.extractFile(fileName);
   }
 
   getArchiveInfo(): ArchiveInfo {
