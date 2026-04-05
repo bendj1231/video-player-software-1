@@ -8,12 +8,17 @@ import { Archive } from 'libarchive.js';
 let init7zWasm: () => Promise<any>;
 let extract7zFile: (file: File, fileName: string, password?: string) => Promise<Blob>;
 
-// Dynamically import archive7z only when needed
+// Dynamically import archive7z only when needed - completely optional
 async function load7zWasm() {
   if (!init7zWasm) {
-    const archive7z = await import('../lib/archive7z');
-    init7zWasm = archive7z.init7zWasm;
-    extract7zFile = archive7z.extract7zFile;
+    try {
+      const archive7z = await import('../lib/archive7z');
+      init7zWasm = archive7z.init7zWasm;
+      extract7zFile = archive7z.extract7zFile;
+    } catch (err) {
+      console.error('Failed to load 7z-wasm:', err);
+      throw new Error('7z archive support not available');
+    }
   }
 }
 
