@@ -3,7 +3,19 @@ import { X, FolderPlus, File as FileIcon, AlertCircle, CheckCircle, Loader2, Loc
 import { addFolder, addVideoZip, VideoZip } from '../lib/db';
 import { VirtualArchiveExplorer, getArchiveFormat } from '../lib/archive';
 import { Archive } from 'libarchive.js';
-import { init7zWasm, extract7zFile } from '../lib/archive7z';
+
+// 7z-wasm is loaded dynamically to avoid build issues
+let init7zWasm: () => Promise<any>;
+let extract7zFile: (file: File, fileName: string, password?: string) => Promise<Blob>;
+
+// Dynamically import archive7z only when needed
+async function load7zWasm() {
+  if (!init7zWasm) {
+    const archive7z = await import('../lib/archive7z');
+    init7zWasm = archive7z.init7zWasm;
+    extract7zFile = archive7z.extract7zFile;
+  }
+}
 
 interface LocalArchiveImportModalProps {
   onClose: () => void;
@@ -261,6 +273,9 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
       // Prompt for password
       const archivePassword = prompt('Enter 7z archive password (leave empty if no password):') || '';
 
+      // Load 7z-wasm module dynamically
+      await load7zWasm();
+      
       // Initialize 7z-wasm
       const sevenZip = await init7zWasm();
       setExtractionProgress('Loading archive...');
