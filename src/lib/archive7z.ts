@@ -1,18 +1,41 @@
 // 7z-wasm archive handler - dedicated to password-protected 7z files
 let sevenZipModule: any = null;
 
-export async function init7zWasm() {
+export async function init7zWasm(): Promise<any> {
   if (!sevenZipModule) {
-    // Dynamic import for browser environment only
+    // Only run in browser
     if (typeof window === 'undefined') {
       throw new Error('7z-wasm can only be loaded in browser environment');
     }
     
-    // Load the 7z-wasm factory function from the global scope or dynamic import
-    const SevenZipFactory = await load7zWasmFactory();
+    // Check if already loaded via script tag
+    if ((window as any).SevenZip) {
+      sevenZipModule = await (window as any).SevenZip({
+        locateFile: (path: string) => {
+          if (path.endsWith('.wasm')) {
+            return '/7z-wasm/7zz.wasm';
+          }
+          return path;
+        }
+      });
+      return sevenZipModule;
+    }
     
-    // Initialize with proper WASM file path
-    sevenZipModule = await SevenZipFactory({
+    // Dynamically load the script
+    await loadScript('/7z-wasm/7zz.es6.js');
+    
+    // Wait for it to be available
+    let retries = 0;
+    while (!(window as any).SevenZip && retries < 50) {
+      await new Promise(r => setTimeout(r, 100));
+      retries++;
+    }
+    
+    if (!(window as any).SevenZip) {
+      throw new Error('7z-wasm failed to load');
+    }
+    
+    sevenZipModule = await (window as any).SevenZip({
       locateFile: (path: string) => {
         if (path.endsWith('.wasm')) {
           return '/7z-wasm/7zz.wasm';
@@ -24,21 +47,18 @@ export async function init7zWasm() {
   return sevenZipModule;
 }
 
-// Dynamically load the 7z-wasm factory
-async function load7zWasmFactory(): Promise<any> {
-  // Try to load from the script tag first (for production)
-  if ((window as any).SevenZip) {
-    return (window as any).SevenZip;
-  }
-  
-  // Otherwise dynamic import
-  try {
-    const module = await import('7z-wasm');
-    return module.default;
-  } catch (err) {
-    console.error('Failed to load 7z-wasm module:', err);
-    throw new Error('7z-wasm module not available. Make sure /7z-wasm/7zz.es6.js is loaded.');
-  }
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
 }
 
 export async function list7zFiles(file: File, password?: string): Promise<string[]> {
