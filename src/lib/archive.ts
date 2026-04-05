@@ -162,6 +162,10 @@ export class VirtualArchiveExplorer {
   }
 
   async listFiles(): Promise<ArchiveFile[]> {
+    if (this.archiveFormat === '7z' && this.sevenZip) {
+      return this.listFiles7z();
+    }
+    
     if (!this.zip) {
       throw new Error('No archive loaded or password required');
     }
@@ -182,7 +186,55 @@ export class VirtualArchiveExplorer {
     return files;
   }
 
+  private async listFiles7z(): Promise<ArchiveFile[]> {
+    if (!this.sevenZip) {
+      throw new Error('7z archive not loaded');
+    }
+
+    const files: ArchiveFile[] = [];
+    const passwordArg = this.password ? `-p${this.password}` : '';
+    
+    try {
+      // Use 7z to list files
+      let output = '';
+      const originalPrint = this.sevenZip.print;
+      this.sevenZip.print = (text: string) => { output += text + '\n'; };
+      
+      const args = passwordArg ? ['l', passwordArg, '/archive.7z'] : ['l', '/archive.7z'];
+      this.sevenZip.callMain(args);
+      
+      this.sevenZip.print = originalPrint;
+      
+      // Parse output to extract file names (simplified parsing)
+      const lines = output.split('\n');
+      for (const line of lines) {
+        // Look for file entries in the listing
+        const match = line.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(.+)$/);
+        if (match && !line.includes('D....') && !line.includes('Attrs')) {
+          const fileName = match[3].trim();
+          if (fileName && !fileName.startsWith('---')) {
+            files.push({
+              name: fileName,
+              size: 0,
+              isDirectory: false,
+              isEncrypted: !!this.password
+            });
+          }
+        }
+      }
+      
+      return files;
+    } catch (error) {
+      console.error('Error listing 7z files:', error);
+      throw new Error('Failed to list 7z archive contents');
+    }
+  }
+
   async extractFile(fileName: string): Promise<Blob> {
+    if (this.archiveFormat === '7z' && this.sevenZip) {
+      return this.extractFile7z(fileName);
+    }
+    
     if (!this.zip) {
       throw new Error('No archive loaded or password required');
     }
@@ -195,6 +247,45 @@ export class VirtualArchiveExplorer {
     // Extract file as blob
     const data = await zipEntry.async('uint8array') as Uint8Array;
     return new Blob([data]);
+  }
+
+  private async extractFile7z(fileName: string): Promise<Blob> {
+    if (!this.sevenZip) {
+      throw new Error('7z archive not loaded');
+    }
+
+    const passwordArg = this.password ? `-p${this.password}` : '';
+    
+    try {
+      // Extract to a virtual file in the FS
+      const outputPath = `/extracted/${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      
+      // Create directory structure
+      const dirPath = outputPath.substring(0, outputPath.lastIndexOf('/'));
+      try {
+        this.sevenZip.FS.mkdir(dirPath);
+      } catch {
+        // Directory might already exist
+      }
+      
+      // Extract the file
+      const args = passwordArg 
+        ? ['e', passwordArg, '/archive.7z', fileName, `-o${dirPath}`, '-y']
+        : ['e', '/archive.7z', fileName, `-o${dirPath}`, '-y'];
+      
+      const result = this.sevenZip.callMain(args);
+      
+      if (result !== 0) {
+        throw new Error(`Failed to extract file: ${fileName}`);
+      }
+      
+      // Read the extracted file
+      const extractedData = this.sevenZip.FS.readFile(outputPath);
+      return new Blob([extractedData]);
+    } catch (error) {
+      console.error('Error extracting 7z file:', error);
+      throw new Error(`Failed to extract file: ${fileName}`);
+    }
   }
 
   async extractVideoFile(fileName: string): Promise<Blob> {

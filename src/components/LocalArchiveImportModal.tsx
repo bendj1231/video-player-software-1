@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { X, FolderPlus, File, AlertCircle, CheckCircle, Loader2, Lock } from 'lucide-react';
 import { addFolder, addVideoZip, VideoZip } from '../lib/db';
 import { VirtualArchiveExplorer, getArchiveFormat } from '../lib/archive';
-import JSZip from 'jszip';
 
 interface LocalArchiveImportModalProps {
   onClose: () => void;
@@ -53,37 +52,32 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
   };
 
   const handleImport = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || !archiveExplorer) return;
+    if (needsPassword) {
+      setError('Please unlock the archive with password first');
+      return;
+    }
 
     try {
       setIsUploading(true);
       setError('');
       setExtractionProgress('Loading archive...');
 
-      // Read and load the zip file
-      const arrayBuffer = await selectedFile.arrayBuffer();
-      const zip = await JSZip.loadAsync(arrayBuffer);
-
-      setExtractionProgress('Scanning for media files...');
-
       // Define media extensions
       const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
       const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
 
-      // Find all media files in the archive
-      const mediaFiles: { name: string; zipEntry: JSZip.JSZipObject }[] = [];
+      // Get all files from archive explorer
+      setExtractionProgress('Scanning for media files...');
+      const archiveFiles = await archiveExplorer.listFiles();
       
-      for (const [name, zipEntry] of Object.entries(zip.files)) {
-        if (zipEntry.dir) continue; // Skip directories
-        
-        const fileName = name.toLowerCase();
+      // Filter media files
+      const mediaFiles = archiveFiles.filter(file => {
+        const fileName = file.name.toLowerCase();
         const isVideo = videoExtensions.some(ext => fileName.endsWith(ext));
         const isImage = imageExtensions.some(ext => fileName.endsWith(ext));
-        
-        if (isVideo || isImage) {
-          mediaFiles.push({ name, zipEntry });
-        }
-      }
+        return isVideo || isImage;
+      });
 
       if (mediaFiles.length === 0) {
         setError('No media files (videos or images) found in the archive');
@@ -100,6 +94,7 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
         isArchive: true,
         archiveFile: selectedFile,
         sourceType: 'local' as const,
+        archivePassword: password || undefined,
       };
 
       await addFolder(newFolder);
@@ -113,13 +108,13 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
       for (let i = 0; i < mediaFiles.length; i += batchSize) {
         const batch = mediaFiles.slice(i, i + batchSize);
         
-        await Promise.all(batch.map(async ({ name, zipEntry }) => {
+        await Promise.all(batch.map(async (fileInfo) => {
           try {
-            // Extract file as blob
-            const blob = await zipEntry.async('blob');
+            // Extract file as blob using archive explorer (with password if needed)
+            const blob = await archiveExplorer.extractFile(fileInfo.name);
             
             // Determine file type
-            const fileName = name.toLowerCase();
+            const fileName = fileInfo.name.toLowerCase();
             const isImage = imageExtensions.some(ext => fileName.endsWith(ext));
             
             let mimeType = 'application/octet-stream';
@@ -141,7 +136,7 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
             }
             
             // Create File object from blob
-            const cleanName = name.split('/').pop() || name;
+            const cleanName = fileInfo.name.split('/').pop() || fileInfo.name;
             const file = new File([blob], cleanName, { type: mimeType });
             
             // Create video zip entry
@@ -158,7 +153,7 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
             await addVideoZip(newVideo);
             processedCount++;
           } catch (err) {
-            console.error(`Error extracting file ${name}:`, err);
+            console.error(`Error extracting file ${fileInfo.name}:`, err);
           }
         }));
 
@@ -200,6 +195,22 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
         fileInput.files = dataTransfer.files;
         handleFileSelect({ target: fileInput } as any);
       }
+    }
+  };
+
+  const handlePasswordSubmit = async () => {
+    if (!password || !archiveExplorer) return;
+
+    setIsUploading(true);
+    setError('');
+
+    try {
+      await archiveExplorer.setPassword(password);
+      setNeedsPassword(false);
+      setIsUploading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid password');
+      setIsUploading(false);
     }
   };
 
@@ -259,6 +270,45 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
           )}
         </div>
 
+        {/* Password Input */}
+        {needsPassword && (
+          <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+            <div className="flex items-center gap-2 text-amber-400 mb-3">
+              <Lock size={18} />
+              <span className="font-medium">Password Required</span>
+            </div>
+            <p className="text-sm text-amber-300 mb-3">
+              This archive is password protected. Please enter the password to extract its contents.
+            </p>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter archive password..."
+              className="w-full px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500/50"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && password) {
+                  handlePasswordSubmit();
+                }
+              }}
+            />
+            <button
+              onClick={handlePasswordSubmit}
+              disabled={!password || isUploading}
+              className="mt-3 w-full py-2 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-700 disabled:opacity-50 text-white font-medium transition-colors"
+            >
+              {isUploading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 size={16} className="animate-spin" />
+                  Verifying...
+                </span>
+              ) : (
+                'Unlock Archive'
+              )}
+            </button>
+          </div>
+        )}
+
         {/* Error Display */}
         {error && (
           <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
@@ -281,7 +331,7 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
           
           <button
             onClick={handleImport}
-            disabled={!selectedFile || isUploading}
+            disabled={!selectedFile || isUploading || needsPassword}
             className="flex-1 py-3 px-4 rounded-xl bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:opacity-50 text-white font-medium transition-colors flex items-center justify-center gap-2"
           >
             {isUploading ? (
