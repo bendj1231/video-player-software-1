@@ -117,13 +117,32 @@
     background-image: none !important;
   }
   
-  /* Content visibility for off-screen items - saves memory */
-  .gallery-grid > *,
-  .folder-item,
-  .video-item {
+  /* Content visibility for off-screen items - but NOT videos */
+  .gallery-grid > *:not(video):not(.video-card),
+  .folder-item:not(.video-card) {
     content-visibility: auto !important;
     contain-intrinsic-size: 0 200px !important;
     contain: layout style paint !important;
+  }
+  
+  /* Ensure videos are always visible and rendered */
+  video, .video-card, video[src] {
+    content-visibility: visible !important;
+    contain: none !important;
+    will-change: auto !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+  
+  /* iPad-specific video fixes */
+  video {
+    -webkit-playsinline: true !important;
+    playsinline: true !important;
+    webkit-playsinline: true !important;
+    preload: "metadata" !important;
+    object-fit: cover !important;
+    background: #000 !important;
   }
   
   /* Limit visible items - prevent DOM overload */
@@ -217,6 +236,12 @@
   .folder-item {
     content-visibility: auto !important;
     contain-intrinsic-size: 0 200px !important;
+  }
+  
+  /* Ensure videos render in portrait */
+  video, .video-card {
+    content-visibility: visible !important;
+    contain: none !important;
   }
   
   *,
