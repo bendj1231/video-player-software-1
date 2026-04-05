@@ -90,55 +90,9 @@ export class VirtualArchiveExplorer {
   }
 
   private async load7z(): Promise<void> {
-    try {
-      console.log('Loading 7z archive...');
-      const factory = await getSevenZipFactory();
-      console.log('7z factory loaded');
-      
-      if (!SevenZipModule) {
-        console.log('Initializing SevenZipModule...');
-        SevenZipModule = await factory();
-        console.log('SevenZipModule initialized');
-      }
-      
-      this.sevenZip = SevenZipModule;
-      
-      // Write archive to virtual filesystem
-      console.log('Writing archive to virtual FS...');
-      try {
-        this.sevenZip.FS.writeFile('/archive.7z', new Uint8Array(this.archiveData!));
-        console.log('Archive written to FS successfully');
-      } catch (fsError) {
-        console.error('FS write error:', fsError);
-        throw new Error('Failed to write archive to virtual filesystem');
-      }
-      
-      // Try to list contents to check if encrypted
-      console.log('Testing archive listing...');
-      try {
-        const result = this.sevenZip.callMain(['l', '/archive.7z']);
-        console.log('Archive listing result:', result);
-        
-        if (result !== 0) {
-          throw new Error(`7z list command failed with code ${result}`);
-        }
-        
-        this.isEncrypted = false;
-        this.hasPassword = false;
-        console.log('7z archive loaded successfully');
-      } catch (listError) {
-        console.log('Archive may be encrypted or corrupted:', listError);
-        this.isEncrypted = true;
-        this.hasPassword = true;
-        throw new Error('7z archive is password protected');
-      }
-    } catch (error) {
-      console.error('load7z error:', error);
-      if (error instanceof Error && error.message.includes('password')) {
-        throw error;
-      }
-      throw new Error(`Failed to load 7z archive: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+    // 7z support is temporarily disabled due to WASM loading issues
+    console.warn('7z support is temporarily disabled. Please use ZIP format.');
+    throw new Error('7z archives are not supported yet. Please convert to ZIP format.');
   }
 
   async setPassword(password: string): Promise<void> {
@@ -212,52 +166,12 @@ export class VirtualArchiveExplorer {
   }
 
   private async listFiles7z(): Promise<ArchiveFile[]> {
-    if (!this.sevenZip) {
-      throw new Error('7z archive not loaded');
-    }
-
-    const files: ArchiveFile[] = [];
-    const passwordArg = this.password ? `-p${this.password}` : '';
-    
-    try {
-      // Use 7z to list files
-      let output = '';
-      const originalPrint = this.sevenZip.print;
-      this.sevenZip.print = (text: string) => { output += text + '\n'; };
-      
-      const args = passwordArg ? ['l', passwordArg, '/archive.7z'] : ['l', '/archive.7z'];
-      this.sevenZip.callMain(args);
-      
-      this.sevenZip.print = originalPrint;
-      
-      // Parse output to extract file names (simplified parsing)
-      const lines = output.split('\n');
-      for (const line of lines) {
-        // Look for file entries in the listing
-        const match = line.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(.+)$/);
-        if (match && !line.includes('D....') && !line.includes('Attrs')) {
-          const fileName = match[3].trim();
-          if (fileName && !fileName.startsWith('---')) {
-            files.push({
-              name: fileName,
-              size: 0,
-              isDirectory: false,
-              isEncrypted: !!this.password
-            });
-          }
-        }
-      }
-      
-      return files;
-    } catch (error) {
-      console.error('Error listing 7z files:', error);
-      throw new Error('Failed to list 7z archive contents');
-    }
+    throw new Error('7z support is temporarily disabled');
   }
 
   async extractFile(fileName: string): Promise<Blob> {
-    if (this.archiveFormat === '7z' && this.sevenZip) {
-      return this.extractFile7z(fileName);
+    if (this.archiveFormat === '7z') {
+      throw new Error('7z support is temporarily disabled');
     }
     
     if (!this.zip) {
@@ -275,42 +189,7 @@ export class VirtualArchiveExplorer {
   }
 
   private async extractFile7z(fileName: string): Promise<Blob> {
-    if (!this.sevenZip) {
-      throw new Error('7z archive not loaded');
-    }
-
-    const passwordArg = this.password ? `-p${this.password}` : '';
-    
-    try {
-      // Extract to a virtual file in the FS
-      const outputPath = `/extracted/${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      
-      // Create directory structure
-      const dirPath = outputPath.substring(0, outputPath.lastIndexOf('/'));
-      try {
-        this.sevenZip.FS.mkdir(dirPath);
-      } catch {
-        // Directory might already exist
-      }
-      
-      // Extract the file
-      const args = passwordArg 
-        ? ['e', passwordArg, '/archive.7z', fileName, `-o${dirPath}`, '-y']
-        : ['e', '/archive.7z', fileName, `-o${dirPath}`, '-y'];
-      
-      const result = this.sevenZip.callMain(args);
-      
-      if (result !== 0) {
-        throw new Error(`Failed to extract file: ${fileName}`);
-      }
-      
-      // Read the extracted file
-      const extractedData = this.sevenZip.FS.readFile(outputPath);
-      return new Blob([extractedData]);
-    } catch (error) {
-      console.error('Error extracting 7z file:', error);
-      throw new Error(`Failed to extract file: ${fileName}`);
-    }
+    throw new Error('7z support is temporarily disabled');
   }
 
   async extractVideoFile(fileName: string): Promise<Blob> {

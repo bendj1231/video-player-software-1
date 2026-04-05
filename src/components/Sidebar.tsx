@@ -127,10 +127,9 @@ export function Sidebar({
             isOpen={isOpen} 
             active={currentView === 'galleries'} 
             onClick={() => {
+              setView('galleries');
               if (isOpen) {
                 setGalleriesExpanded(!galleriesExpanded);
-              } else {
-                setView('galleries');
               }
             }}
             rightIcon={isOpen ? (
