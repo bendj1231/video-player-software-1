@@ -113,23 +113,26 @@ export function Sidebar({
         "flex flex-col gap-3 mt-16 flex-1 overflow-y-auto overscroll-contain",
         isOpen ? "p-4" : "p-3 items-center"
       )}>
-        <SidebarItem icon={<Home size={28} />} label="Home" isOpen={isOpen} active={currentView === 'home'} onClick={() => setView('home')} />
+        <SidebarItem id="home-btn" icon={<Home size={28} />} label="Home" isOpen={isOpen} active={currentView === 'home'} onClick={() => { console.log('Home clicked'); setView('home'); }} />
         
         <SidebarItem 
+          id="multiview-btn"
           icon={<Grid3X3 size={28} />} 
           label="Multi-View" 
           isOpen={isOpen} 
           active={currentView === 'multiview'} 
-          onClick={() => setView('multiview')} 
+          onClick={() => { console.log('MultiView clicked'); setView('multiview'); }} 
         />
         
         <div className="relative">
           <SidebarItem 
+            id="galleries-btn"
             icon={<Folder size={28} />} 
             label="Galleries" 
             isOpen={isOpen} 
             active={currentView === 'galleries'} 
             onClick={() => {
+              console.log('Galleries clicked');
               setView('galleries');
               if (isOpen) {
                 setGalleriesExpanded(!galleriesExpanded);
@@ -305,6 +308,7 @@ export function Sidebar({
 }
 
 function SidebarItem({ 
+  id,
   icon, 
   label, 
   isOpen, 
@@ -313,6 +317,7 @@ function SidebarItem({
   onClick,
   rightIcon
 }: { 
+  id?: string;
   icon: ReactNode, 
   label: string, 
   isOpen: boolean, 
@@ -327,10 +332,11 @@ function SidebarItem({
 
   return (
     <button
+      id={id}
       onClick={(e) => onClick(e)}
       title={!isOpen ? label : undefined}
       className={clsx(
-        "flex items-center rounded-2xl transition-all duration-300 overflow-hidden whitespace-nowrap w-full touch-manipulation",
+        "flex items-center rounded-2xl transition-all duration-300 overflow-hidden whitespace-nowrap w-full",
         isOpen ? "gap-4 p-4 min-h-[56px]" : "justify-center p-3 w-14 h-14 min-w-[56px] min-h-[56px]",
         active ? activeClasses : "text-zinc-400 hover:bg-white/5 hover:text-white active:bg-white/10"
       )}
