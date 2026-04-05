@@ -244,9 +244,11 @@ export function Sidebar({
           isOpen={isOpen} 
           active={false}
           onClick={() => {
+            console.log('Theme toggle clicked, current theme:', theme);
             const themes: ('dark' | 'light' | 'futuristic' | 'smokey')[] = ['dark', 'light', 'futuristic', 'smokey'];
             const currentIndex = themes.indexOf(theme || 'dark');
             const nextTheme = themes[(currentIndex + 1) % themes.length];
+            console.log('Switching to theme:', nextTheme);
             setTheme?.(nextTheme);
           }} 
         />

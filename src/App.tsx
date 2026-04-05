@@ -15,8 +15,15 @@ export default function App() {
   const [playingVideo, setPlayingVideo] = useState<{ blob: Blob | null, id: string | null }>({ blob: null, id: null });
   const [privacyMode, setPrivacyMode] = useState<'none' | 'blur' | 'cover'>('none');
   const [isMuted, setIsMuted] = useState(true); // Default to muted for privacy
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setThemeState] = useState<Theme>('dark');
   const [showSettings, setShowSettings] = useState(false);
+
+  // Debug theme changes
+  const setTheme = useCallback((newTheme: Theme) => {
+    console.log('Theme changing from', theme, 'to', newTheme);
+    console.trace('Theme change trace');
+    setThemeState(newTheme);
+  }, [theme]);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -61,6 +68,7 @@ export default function App() {
   const themeStyles = getThemeStyles();
 
   const handleSetView = (view: string) => {
+    console.log('View changing to:', view, 'current theme:', theme);
     setCurrentView(view);
     if (view !== 'folder') {
       setSelectedFolderId(null);
