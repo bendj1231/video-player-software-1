@@ -69,3 +69,167 @@
   border: none !important;
   outline: none !important;
 }
+
+/* ============================================
+   iPad Pro 12.9" 1st Generation Optimizations
+   A9X Chip - Performance focused
+   ============================================ */
+
+/* iPad Pro 12.9" specific media query
+   Screen: 2732 x 2048 @ 264 PPI
+   Aspect Ratio: 4:3
+   Chip: A9X (2015) - reduce heavy effects */
+@media only screen 
+  and (min-device-width: 1024px) 
+  and (max-device-width: 1366px)
+  and (-webkit-min-device-pixel-ratio: 2)
+  and (orientation: landscape) {
+  
+  /* Reduce blur effects for A9X performance */
+  .glass-panel {
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+  }
+  
+  .glass-card {
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.15) !important;
+  }
+  
+  .glass-button {
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+  }
+  
+  /* Disable complex gradients for performance */
+  .bg-gradient-to-b,
+  .bg-gradient-to-t,
+  .bg-gradient-to-r,
+  .bg-gradient-to-l,
+  .bg-gradient-to-tr,
+  .bg-gradient-to-tl,
+  .bg-gradient-to-br,
+  .bg-gradient-to-bl {
+    opacity: 0.7;
+  }
+  
+  /* Optimize for 4:3 aspect ratio - wider content area */
+  .ipad-4-3-wide {
+    max-width: 95% !important;
+  }
+  
+  /* Larger touch targets for iPad (minimum 44px) */
+  button, 
+  [role="button"],
+  input[type="range"],
+  input[type="button"],
+  input[type="submit"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Video player optimizations for iPad */
+  video {
+    -webkit-playsinline: true;
+    playsinline: true;
+  }
+  
+  /* Reduce animation complexity */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.3s !important;
+    transition-duration: 0.2s !important;
+  }
+}
+
+/* iPad Portrait optimizations */
+@media only screen 
+  and (min-device-width: 1024px) 
+  and (max-device-width: 1366px)
+  and (-webkit-min-device-pixel-ratio: 2)
+  and (orientation: portrait) {
+  
+  /* Same performance optimizations */
+  .glass-panel {
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+  }
+  
+  .glass-card {
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+  }
+  
+  .glass-button {
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+  }
+  
+  /* Portrait-specific sidebar handling */
+  [data-sidebar] {
+    max-width: 80vw;
+  }
+  
+  /* Larger touch targets */
+  button, 
+  [role="button"] {
+    min-height: 48px;
+    min-width: 48px;
+  }
+}
+
+/* Touch device optimizations - no hover states */
+@media (hover: none) {
+  .glass-button:hover,
+  .glass-card:hover {
+    background: inherit !important;
+    border-color: inherit !important;
+  }
+  
+  /* Disable hover-based tooltips */
+  [title]:hover::after {
+    display: none !important;
+  }
+  
+  /* Active states instead of hover */
+  .glass-button:active {
+    background: rgba(255, 255, 255, 0.15) !important;
+    transform: scale(0.98);
+  }
+}
+
+/* iOS Safari specific fixes */
+@supports (-webkit-touch-callout: none) {
+  /* Prevent callout menu */
+  * {
+    -webkit-touch-callout: none;
+  }
+  
+  /* Prevent text selection on UI elements */
+  button, 
+  [role="button"],
+  .glass-button,
+  .glass-card {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  /* Allow text selection in content areas */
+  p, h1, h2, h3, h4, h5, h6, span {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  
+  /* Disable iOS default tap highlight */
+  * {
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  }
+  
+  /* Fix iOS 100vh issue */
+  .h-screen {
+    height: 100dvh;
+    height: -webkit-fill-available;
+  }
+}

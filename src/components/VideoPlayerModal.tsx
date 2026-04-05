@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Loader2, Trash2, Play, Pause, RotateCcw, Download, AlertCircle, Film } from 'lucide-react';
+import { X, Loader2, Play, Pause, RotateCcw, RotateCw, Download, AlertCircle, Film, Maximize, Minimize, ChevronUp } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { getVideoPreview } from '../lib/zip';
 import { needsTranscoding, transcodeVideo, getVideoFormat } from '../lib/ffmpeg';
@@ -9,16 +9,22 @@ export function VideoPlayerModal({
   zipBlob, 
   videoId,
   onClose, 
-  onDelete,
   isMuted = true,
-  blurEnabled = false
+  blurEnabled = false,
+  onNext,
+  onPrevious,
+  hasNext = false,
+  hasPrevious = false
 }: { 
   zipBlob: Blob | null, 
   videoId?: string,
   onClose: () => void,
-  onDelete?: (id: string) => void,
   isMuted?: boolean,
-  blurEnabled?: boolean
+  blurEnabled?: boolean,
+  onNext?: () => void,
+  onPrevious?: () => void,
+  hasNext?: boolean,
+  hasPrevious?: boolean
 }) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,7 +36,17 @@ export function VideoPlayerModal({
   const [duration, setDuration] = useState(0);
   const [transcodingProgress, setTranscodingProgress] = useState(0);
   const [isTranscoding, setIsTranscoding] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showExpandHint, setShowExpandHint] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Hide expand hint after 3 seconds
+  useEffect(() => {
+    if (showExpandHint) {
+      const timer = setTimeout(() => setShowExpandHint(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showExpandHint]);
 
   useEffect(() => {
     let cleanupFn: (() => void) | null = null;
@@ -135,14 +151,14 @@ export function VideoPlayerModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [zipBlob, isPlaying, duration, onClose]);
 
-  if (!zipBlob) return null;
-
-  const handleDelete = () => {
-    if (videoId && onDelete && confirm('Delete this video from local storage after viewing?')) {
-      onDelete(videoId);
-      onClose();
+  // Sync muted state with video element when isMuted prop changes
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
     }
-  };
+  }, [isMuted]);
+
+  if (!zipBlob) return null;
 
   const togglePlay = () => {
     if (videoRef.current) {
@@ -158,6 +174,24 @@ export function VideoPlayerModal({
   const rewind10Seconds = () => {
     if (videoRef.current) {
       videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
+    }
+  };
+
+  const forward10Seconds = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 10);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (onPrevious && hasPrevious) {
+      onPrevious();
+    }
+  };
+
+  const handleNext = () => {
+    if (onNext && hasNext) {
+      onNext();
     }
   };
 
@@ -239,6 +273,11 @@ export function VideoPlayerModal({
     URL.revokeObjectURL(url);
   };
 
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+    setShowExpandHint(false);
+  };
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -251,50 +290,81 @@ export function VideoPlayerModal({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-2xl p-4 md:p-12"
+        className={`fixed z-[100] bg-black flex flex-col transition-all duration-300 ${
+          isFullscreen 
+            ? 'inset-0' 
+            : 'inset-8 md:inset-16 lg:inset-24 rounded-2xl overflow-hidden shadow-2xl border border-white/10'
+        }`}
       >
-        <div className="relative w-full max-w-6xl aspect-video glass-card rounded-[2rem] overflow-hidden flex items-center justify-center">
-          <button
-            onClick={onClose}
-            className="absolute top-6 right-6 z-10 glass-button text-white p-3 rounded-full transition-transform hover:scale-110"
-          >
-            <X size={24} />
-          </button>
-
-          {videoUrl && videoId && onDelete && (
+        {/* Header Controls */}
+        <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
+          <div className="flex items-center gap-3">
+            {videoId && (
+              <span className="text-white/60 text-sm font-medium">Now Playing</span>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-3">
+            {/* Expand/Fullscreen Toggle */}
             <button
-              onClick={handleDelete}
-              className="absolute top-6 right-20 z-10 bg-red-500/30 hover:bg-red-500/50 text-red-200 p-3 rounded-full transition-all hover:scale-110 flex items-center gap-2"
+              onClick={toggleFullscreen}
+              className="p-3 min-w-[44px] min-h-[44px] glass-button text-white rounded-full transition-transform active:scale-95 touch-manipulation"
+              title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             >
-              <Trash2 size={20} />
-              <span className="hidden sm:inline text-sm font-medium">Delete After Viewing</span>
+              {isFullscreen ? <Minimize size={24} /> : <Maximize size={24} />}
             </button>
-          )}
+            
+            <button
+              onClick={onClose}
+              className="p-3 min-w-[44px] min-h-[44px] glass-button text-white rounded-full transition-transform active:scale-95 touch-manipulation"
+              aria-label="Close video player"
+            >
+              <X size={24} />
+            </button>
+          </div>
+        </div>
 
-          {isTranscoding && (
-            <div className="flex flex-col items-center gap-4 text-white/70 max-w-md w-full px-8">
-              <Film size={48} className="text-emerald-400" />
-              <p className="text-lg">Converting video for playback...</p>
-              <div className="w-full bg-white/20 rounded-full h-2 mt-2">
-                <div 
-                  className="bg-emerald-400 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${transcodingProgress}%` }}
-                />
-              </div>
-              <p className="text-sm text-white/50">{transcodingProgress}%</p>
-              <p className="text-xs text-white/40">This may take a moment for large files</p>
+        {/* Expand Hint (shown briefly in popup mode) */}
+        {!isFullscreen && showExpandHint && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-black/80 backdrop-blur-md px-4 py-2 rounded-full border border-white/20"
+          >
+            <div className="flex items-center gap-2 text-white/80 text-sm">
+              <ChevronUp size={16} />
+              <span>Click expand for fullscreen</span>
             </div>
-          )}
+          </motion.div>
+        )}
 
-          {!isTranscoding && loading && (
-            <div className="flex flex-col items-center gap-6 text-white/70">
-              <Loader2 size={48} className="animate-spin" />
-              <p className="text-lg">Extracting high-quality video...</p>
+        {isTranscoding && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-white/70 px-8">
+            <Film size={48} className="text-emerald-400" />
+            <p className="text-lg">Converting video for playback...</p>
+            <div className="w-full max-w-md bg-white/20 rounded-full h-2 mt-2">
+              <div 
+                className="bg-emerald-400 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${transcodingProgress}%` }}
+              />
             </div>
-          )}
+            <p className="text-sm text-white/50">{transcodingProgress}%</p>
+            <p className="text-xs text-white/40">This may take a moment for large files</p>
+          </div>
+        )}
 
-          {videoError && (
-            <div className="text-amber-300 p-6 bg-amber-500/10 rounded-2xl border border-amber-500/20 backdrop-blur-md max-w-md text-center">
+        {!isTranscoding && loading && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 text-white/70">
+            <Loader2 size={48} className="animate-spin" />
+            <p className="text-lg">Extracting high-quality video...</p>
+          </div>
+        )}
+
+        {videoError && (
+          <div className="flex-1 flex flex-col items-center justify-center text-amber-300 p-6">
+            <div className="bg-amber-500/10 rounded-2xl border border-amber-500/20 backdrop-blur-md max-w-md text-center p-8">
               <AlertCircle size={48} className="mx-auto mb-4 text-amber-400" />
               <p className="mb-4">{videoError}</p>
               <button
@@ -305,59 +375,106 @@ export function VideoPlayerModal({
                 Download Video
               </button>
             </div>
-          )}
+          </div>
+        )}
 
-          {videoUrl && (
-            <div className="w-full h-full flex flex-col">
-              <video
-                ref={videoRef}
-                src={videoUrl}
-                className={`flex-1 w-full h-full object-contain bg-black/40 ${blurEnabled ? 'blur-[20px]' : ''}`}
-                onTimeUpdate={handleTimeUpdate}
-                onLoadedMetadata={handleLoadedMetadata}
-                onEnded={() => setIsPlaying(false)}
-                onError={handleVideoError}
-                autoPlay
-                muted={isMuted}
-              />
+        {videoUrl && (
+          <div className="flex-1 w-full h-full flex flex-col">
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              className={`flex-1 w-full h-full object-contain bg-black ${blurEnabled ? 'blur-[20px]' : ''}`}
+              onTimeUpdate={handleTimeUpdate}
+              onLoadedMetadata={handleLoadedMetadata}
+              onEnded={() => setIsPlaying(false)}
+              onError={handleVideoError}
+              autoPlay
+              muted={isMuted}
+              playsInline
+              preload="metadata"
+              controls={false}
+            />
+            
+            {/* Long Rectangular Controls Bar */}
+            <div className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-16 pb-6 px-4">
+              {/* Progress Bar - Full Width */}
+              <div className="flex items-center gap-3 mb-4 max-w-4xl mx-auto">
+                <span className="text-white/80 text-sm font-medium min-w-[50px]">{formatTime(currentTime)}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || 100}
+                  value={currentTime}
+                  onChange={handleSeek}
+                  className="flex-1 h-3 bg-white/30 rounded-full appearance-none cursor-pointer touch-manipulation [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
+                  aria-label="Video progress"
+                />
+                <span className="text-white/80 text-sm font-medium min-w-[50px] text-right">{formatTime(duration)}</span>
+              </div>
               
-              {/* Custom Controls Bar */}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-6">
-                {/* Progress Bar */}
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="text-white/80 text-sm font-medium">{formatTime(currentTime)}</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={duration || 100}
-                    value={currentTime}
-                    onChange={handleSeek}
-                    className="flex-1 h-1.5 bg-white/30 rounded-full appearance-none cursor-pointer hover:bg-white/50 transition-colors [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
-                  />
-                  <span className="text-white/80 text-sm font-medium">{formatTime(duration)}</span>
-                </div>
+              {/* Controls Row */}
+              <div className="flex items-center justify-center gap-8 max-w-4xl mx-auto">
+                {/* Previous Video */}
+                <button
+                  onClick={handlePrevious}
+                  disabled={!hasPrevious}
+                  className={`p-4 min-w-[48px] min-h-[48px] rounded-xl transition-all touch-manipulation active:scale-95 ${hasPrevious ? 'text-white active:bg-white/20' : 'text-white/30 cursor-not-allowed'}`}
+                  title="Previous video"
+                  aria-label="Previous video"
+                >
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+                  </svg>
+                </button>
+
+                {/* Back 10 Seconds */}
+                <button
+                  onClick={rewind10Seconds}
+                  className="p-4 min-w-[48px] min-h-[48px] rounded-xl text-white transition-all touch-manipulation active:scale-95 active:bg-white/20"
+                  title="Back 10 seconds"
+                  aria-label="Back 10 seconds"
+                >
+                  <RotateCcw size={26} />
+                </button>
                 
-                {/* Control Buttons */}
-                <div className="flex items-center justify-center gap-6">
-                  <button
-                    onClick={rewind10Seconds}
-                    className="p-3 glass-button rounded-full text-white hover:scale-110 transition-transform"
-                    title="Rewind 10 seconds"
-                  >
-                    <RotateCcw size={24} />
-                  </button>
-                  
-                  <button
-                    onClick={togglePlay}
-                    className="p-4 glass-button rounded-full text-white hover:scale-110 transition-transform"
-                  >
+                {/* Play/Pause - Larger */}
+                <button
+                  onClick={togglePlay}
+                  className="px-10 py-4 min-w-[120px] min-h-[56px] bg-white/20 active:bg-white/30 rounded-xl text-white active:scale-95 transition-all touch-manipulation"
+                  aria-label={isPlaying ? "Pause" : "Play"}
+                >
+                  <div className="flex items-center gap-2">
                     {isPlaying ? <Pause size={28} /> : <Play size={28} className="ml-1" />}
-                  </button>
-                </div>
+                    <span className="text-sm font-medium">{isPlaying ? 'Pause' : 'Play'}</span>
+                  </div>
+                </button>
+                
+                {/* Forward 10 Seconds */}
+                <button
+                  onClick={forward10Seconds}
+                  className="p-4 min-w-[48px] min-h-[48px] rounded-xl text-white transition-all touch-manipulation active:scale-95 active:bg-white/20"
+                  title="Forward 10 seconds"
+                  aria-label="Forward 10 seconds"
+                >
+                  <RotateCw size={26} />
+                </button>
+
+                {/* Next Video */}
+                <button
+                  onClick={handleNext}
+                  disabled={!hasNext}
+                  className={`p-4 min-w-[48px] min-h-[48px] rounded-xl transition-all touch-manipulation active:scale-95 ${hasNext ? 'text-white active:bg-white/20' : 'text-white/30 cursor-not-allowed'}`}
+                  title="Next video"
+                  aria-label="Next video"
+                >
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                  </svg>
+                </button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </motion.div>
     </AnimatePresence>
   );

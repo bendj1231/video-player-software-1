@@ -2,8 +2,35 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
     <title>My Google AI Studio App</title>
+    <style>
+      /* iPad Pro 12.9" optimizations */
+      @media only screen 
+        and (min-device-width: 1024px) 
+        and (max-device-width: 1366px)
+        and (-webkit-min-device-pixel-ratio: 2) {
+        html {
+          touch-action: manipulation;
+          -webkit-text-size-adjust: none;
+        }
+      }
+      
+      /* Disable text selection on iPad for app-like feel */
+      * {
+        -webkit-tap-highlight-color: transparent;
+      }
+      
+      /* iPad hover behavior - no hover on touch devices */
+      @media (hover: none) {
+        *:hover {
+          background-color: inherit !important;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

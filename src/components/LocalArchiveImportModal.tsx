@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, FolderPlus, File as FileIcon, AlertCircle, CheckCircle, Loader2, Lock } from 'lucide-react';
+import JSZip from 'jszip';
 import { addFolder, addVideoZip, VideoZip } from '../lib/db';
 import { VirtualArchiveExplorer, getArchiveFormat } from '../lib/archive';
 import { Archive } from 'libarchive.js';
@@ -290,91 +291,112 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
       const data = new Uint8Array(await selectedFile.arrayBuffer());
       sevenZip.FS.writeFile(archivePath, data);
 
-      // List files with password
-      setExtractionProgress('Listing files...');
+      // Get list of files first using 7z's built-in list command
+      setExtractionProgress('Listing archive contents...');
       const listArgs = archivePassword ? ['l', `-p${archivePassword}`, archivePath] : ['l', archivePath];
-      sevenZip.callMain(listArgs);
       
-      // For now, try to extract all and filter by extension
-      // In a real implementation, we'd parse the output properly
+      // Redirect stdout to capture file list
+      let fileListOutput = '';
+      const originalPrint = sevenZip.print;
+      sevenZip.print = (text: string) => {
+        fileListOutput += text + '\n';
+      };
+      
+      sevenZip.callMain(listArgs);
+      sevenZip.print = originalPrint;
+      
+      // Parse the file list to find media files
+      const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif'];
+      
+      // Parse 7z output to find files (lines contain file names)
+      const lines = fileListOutput.split('\n');
+      const mediaFiles: string[] = [];
+      
+      // 7z list output format: files are listed after headers
+      // Format can be:
+      // "2024-01-15 10:30:00 ....A        1234567    1234567  filename.ext"
+      // "2024-01-15 10:30:00 ....A        1234567    1234567  folder/filename with spaces.ext"
+      // Or just: "filename.ext" in some versions
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        
+        // Skip header/footer lines
+        if (trimmed.startsWith('7-zip') || 
+            trimmed.startsWith('Scanning') || 
+            trimmed.startsWith('Listing') ||
+            trimmed.startsWith('Path =') ||
+            trimmed.startsWith('Type =') ||
+            trimmed.startsWith('Physical') ||
+            trimmed.startsWith('Headers') ||
+            trimmed.startsWith('Method') ||
+            trimmed.startsWith('Solid') ||
+            trimmed.startsWith('Blocks') ||
+            trimmed.startsWith('0M') ||
+            trimmed.startsWith('----------') ||
+            trimmed.includes('Date') && trimmed.includes('Time') && trimmed.includes('Attr') ||
+            trimmed.includes('Compressed') && trimmed.includes('Size') ||
+            trimmed.match(/^\d+ files?$/) ||
+            trimmed.includes('----')) continue;
+        
+        // Extract filename from the line
+        // Lines with files typically have a pattern with date/time at the start
+        // We'll try to extract the filename from the end of the line
+        let fileName = '';
+        
+        // Try pattern: Date Time Attr Size Compressed Name
+        // Example: "2024-01-15 10:30:00 ....A     1234567   1234567  folder/file name.mov"
+        const datePattern = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})/;
+        if (datePattern.test(trimmed)) {
+          // Remove the date/time part and attributes, keep the rest
+          // Split by 2+ spaces to separate columns
+          const parts = trimmed.split(/\s{2,}/);
+          if (parts.length >= 4) {
+            // Last part should be the filename
+            fileName = parts[parts.length - 1];
+          }
+        } else if (!trimmed.includes('  ') && trimmed.length > 0) {
+          // Simple filename line (no table formatting)
+          fileName = trimmed;
+        }
+        
+        if (!fileName) continue;
+        
+        const lowerName = fileName.toLowerCase();
+        
+        // Check for media files OR zip files (for nested extraction)
+        const isMedia = videoExtensions.some(ext => lowerName.endsWith(ext)) || 
+                        imageExtensions.some(ext => lowerName.endsWith(ext)) ||
+                        lowerName.endsWith('.zip'); // Include zip files for nested extraction
+        
+        // Accept files with folder paths and spaces
+        if (isMedia && fileName.length > 3 && !fileName.includes('\\') && !fileName.includes(':/')) {
+          mediaFiles.push(fileName);
+        }
+      }
+      
+      console.log('Found media files in archive:', mediaFiles);
+      console.log('7z list output (first 50 lines):', lines.slice(0, 50));
+      
+      // If no media files found but we have a password, still try to proceed
+      // The archive might be encrypted in a way that hides file listing
+      if (mediaFiles.length === 0) {
+        if (archivePassword) {
+          console.log('No files in listing but password provided - attempting blind extraction');
+          // Don't throw error - try to extract anyway, might work if archive structure is encrypted
+        } else {
+          throw new Error('No media files found. If the archive is password protected, please provide a password.');
+        }
+      }
+      
+      // Create output directory
       const outputDir = '/output/';
       try {
         sevenZip.FS.mkdir(outputDir);
       } catch (e) {
         // May exist
-      }
-
-      const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
-      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif'];
-
-      // Try to extract all files
-      const extractArgs = archivePassword ? ['e', `-p${archivePassword}`, archivePath, `-o${outputDir}`, '-y'] : ['e', archivePath, `-o${outputDir}`, '-y'];
-      console.log('Extracting with args:', extractArgs);
-      const extractResult = sevenZip.callMain(extractArgs);
-      console.log('Extract result (exit code):', extractResult);
-
-      // Read output directory - list ALL files first
-      let allFiles: string[] = [];
-      try {
-        allFiles = sevenZip.FS.readdir(outputDir);
-        console.log('All files in output dir:', allFiles);
-      } catch (e) {
-        console.error('Error reading output dir:', e);
-      }
-      
-      // Filter for media files
-      const extractedFiles: string[] = [];
-      for (const entry of allFiles) {
-        if (entry === '.' || entry === '..') continue;
-        const lowerName = entry.toLowerCase();
-        console.log('Checking file:', entry, 'lower:', lowerName);
-        const isVideo = videoExtensions.some(ext => lowerName.endsWith(ext));
-        const isImage = imageExtensions.some(ext => lowerName.endsWith(ext));
-        console.log('Is video:', isVideo, 'Is image:', isImage);
-        if (isVideo || isImage) {
-          extractedFiles.push(entry);
-        }
-      }
-
-      console.log('Found media files:', extractedFiles);
-
-      if (extractedFiles.length === 0) {
-        // If no files extracted and password was empty, try with password
-        if (!archivePassword) {
-          const password = prompt('This 7z archive appears to be password protected. Enter password:') || '';
-          if (!password) {
-            throw new Error('Password required to import 7z archive');
-          }
-          // Clear output dir and retry
-          try {
-            const entries = sevenZip.FS.readdir(outputDir);
-            for (const entry of entries) {
-              if (entry !== '.' && entry !== '..') {
-                sevenZip.FS.unlink(outputDir + entry);
-              }
-            }
-          } catch (e) { /* ignore */ }
-          
-          // Retry with password
-          const retryArgs = ['e', `-p${password}`, archivePath, `-o${outputDir}`, '-y'];
-          console.log('Retrying with password:', retryArgs);
-          sevenZip.callMain(retryArgs);
-          
-          // Read again
-          const entries2 = sevenZip.FS.readdir(outputDir);
-          console.log('Files after retry:', entries2);
-          for (const entry of entries2) {
-            if (entry === '.' || entry === '..') continue;
-            const lowerName = entry.toLowerCase();
-            if (videoExtensions.some(ext => lowerName.endsWith(ext)) || imageExtensions.some(ext => lowerName.endsWith(ext))) {
-              extractedFiles.push(entry);
-            }
-          }
-        }
-        
-        if (extractedFiles.length === 0) {
-          throw new Error('No media files found in the 7z archive');
-        }
       }
 
       // Create folder
@@ -391,69 +413,248 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
 
       await addFolder(newFolder);
 
-      // Add extracted files to database
-      setExtractionProgress(`Adding ${extractedFiles.length} files to database...`);
+      // Helper function to process nested zip files
+      const processNestedZip = async (zipBlob: Blob, folderId: string): Promise<number> => {
+        const zip = await JSZip.loadAsync(zipBlob);
+        let nestedCount = 0;
+        
+        for (const [path, zipEntry] of Object.entries(zip.files)) {
+          if (zipEntry.dir) continue;
+          
+          const fileName = path.split('/').pop() || path;
+          const lowerName = fileName.toLowerCase();
+          
+          // Check if this is a media file
+          const isMedia = videoExtensions.some(ext => lowerName.endsWith(ext)) || 
+                          imageExtensions.some(ext => lowerName.endsWith(ext));
+          
+          if (isMedia) {
+            try {
+              const content = await zipEntry.async('uint8array');
+              const blob = new Blob([content]);
+              
+              // Determine mime type
+              let mimeType = 'application/octet-stream';
+              if (lowerName.endsWith('.mp4')) mimeType = 'video/mp4';
+              else if (lowerName.endsWith('.webm')) mimeType = 'video/webm';
+              else if (lowerName.endsWith('.mov')) mimeType = 'video/quicktime';
+              else if (lowerName.endsWith('.mkv')) mimeType = 'video/x-matroska';
+              else if (lowerName.endsWith('.avi')) mimeType = 'video/x-msvideo';
+              else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mimeType = 'image/jpeg';
+              else if (lowerName.endsWith('.png')) mimeType = 'image/png';
+              else if (lowerName.endsWith('.gif')) mimeType = 'image/gif';
+              else if (lowerName.endsWith('.webp')) mimeType = 'image/webp';
+
+              const file = new File([blob], fileName, { type: mimeType });
+              
+              const newVideo: VideoZip = {
+                id: crypto.randomUUID(),
+                folderId: folderId,
+                name: fileName.replace(/\.(mp4|webm|mov|mkv|avi|m4v|mcgi|m2ts|ts|m2t|mts|m4p|3gp|3g2|flv|f4v|wmv|asf|ogv|ogg|ogm|divx|xvid|dv|qt|mqv|hevc|h265|h264|jpg|jpeg|png|gif|webp)$/i, ''),
+                file: file,
+                createdAt: Date.now(),
+                sourceType: 'local',
+                isCached: false,
+              };
+
+              await addVideoZip(newVideo);
+              nestedCount++;
+            } catch (err) {
+              console.error(`Error processing nested file ${path}:`, err);
+            }
+          }
+        }
+        
+        return nestedCount;
+      };
+
+      // Extract files one at a time to save memory
+      setExtractionProgress(`Extracting ${mediaFiles.length} files...`);
       let processedCount = 0;
 
-      for (const fileName of extractedFiles) {
+      for (let i = 0; i < mediaFiles.length; i++) {
+        const fileName = mediaFiles[i];
         try {
-          const filePath = outputDir + fileName;
-          console.log('Reading file:', filePath);
-          const fileData = sevenZip.FS.readFile(filePath);
-          console.log('File data type:', typeof fileData, 'length:', fileData.length || fileData.byteLength);
+          setExtractionProgress(`Extracting ${fileName} (${i + 1}/${mediaFiles.length})...`);
           
-          // Convert to standard Uint8Array if needed
+          // Clear output directory before each extraction
+          try {
+            const existing = sevenZip.FS.readdir(outputDir);
+            for (const entry of existing) {
+              if (entry !== '.' && entry !== '..') {
+                sevenZip.FS.unlink(outputDir + entry);
+              }
+            }
+          } catch (e) { /* ignore */ }
+          
+          // Extract single file - wrap filename in quotes to handle spaces
+          const quotedFileName = `"${fileName}"`;
+          const extractArgs = archivePassword 
+            ? ['e', `-p${archivePassword}`, archivePath, quotedFileName, `-o${outputDir}`, '-y', '-bb0']
+            : ['e', archivePath, quotedFileName, `-o${outputDir}`, '-y', '-bb0'];
+          
+          const result = sevenZip.callMain(extractArgs);
+          if (result !== 0) {
+            console.error(`Failed to extract ${fileName}, exit code:`, result);
+            continue;
+          }
+          
+          // Read the extracted file
+          const filePath = outputDir + fileName.split('/').pop();
+          const fileData = sevenZip.FS.readFile(filePath);
+          
+          // Convert to standard Uint8Array
           const uint8Data = new Uint8Array(fileData);
           const blob = new Blob([uint8Data]);
           
-          // Determine mime type
           const lowerName = fileName.toLowerCase();
-          let mimeType = 'application/octet-stream';
-          if (lowerName.endsWith('.mp4')) mimeType = 'video/mp4';
-          else if (lowerName.endsWith('.webm')) mimeType = 'video/webm';
-          else if (lowerName.endsWith('.mov')) mimeType = 'video/quicktime';
-          else if (lowerName.endsWith('.mkv')) mimeType = 'video/x-matroska';
-          else if (lowerName.endsWith('.avi')) mimeType = 'video/x-msvideo';
-          else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mimeType = 'image/jpeg';
-          else if (lowerName.endsWith('.png')) mimeType = 'image/png';
-          else if (lowerName.endsWith('.gif')) mimeType = 'image/gif';
-          else if (lowerName.endsWith('.webp')) mimeType = 'image/webp';
-
-          // Create File from Blob
-          const file = new File([blob], fileName, { type: mimeType });
-
-          const newVideo: VideoZip = {
-            id: crypto.randomUUID(),
-            folderId: newFolder.id,
-            name: fileName.replace(/\.(mp4|webm|mov|mkv|avi|m4v|mcgi|m2ts|ts|m2t|mts|m4p|3gp|3g2|flv|f4v|wmv|asf|ogv|ogg|ogm|divx|xvid|dv|qt|mqv|hevc|h265|h264|jpg|jpeg|png|gif|webp)$/i, ''),
-            file: file,
-            createdAt: Date.now(),
-            sourceType: 'local',
-            isCached: false,
-          };
-
-          await addVideoZip(newVideo);
-          processedCount++;
           
-          // Cleanup
+          // If this is a zip file, process its contents
+          if (lowerName.endsWith('.zip')) {
+            const nestedCount = await processNestedZip(blob, newFolder.id);
+            processedCount += nestedCount;
+          } else {
+            // Determine mime type
+            let mimeType = 'application/octet-stream';
+            if (lowerName.endsWith('.mp4')) mimeType = 'video/mp4';
+            else if (lowerName.endsWith('.webm')) mimeType = 'video/webm';
+            else if (lowerName.endsWith('.mov')) mimeType = 'video/quicktime';
+            else if (lowerName.endsWith('.mkv')) mimeType = 'video/x-matroska';
+            else if (lowerName.endsWith('.avi')) mimeType = 'video/x-msvideo';
+            else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mimeType = 'image/jpeg';
+            else if (lowerName.endsWith('.png')) mimeType = 'image/png';
+            else if (lowerName.endsWith('.gif')) mimeType = 'image/gif';
+            else if (lowerName.endsWith('.webp')) mimeType = 'image/webp';
+
+            // Create File from Blob
+            const file = new File([blob], fileName.split('/').pop() || fileName, { type: mimeType });
+
+            const newVideo: VideoZip = {
+              id: crypto.randomUUID(),
+              folderId: newFolder.id,
+              name: (fileName.split('/').pop() || fileName).replace(/\.(mp4|webm|mov|mkv|avi|m4v|mcgi|m2ts|ts|m2t|mts|m4p|3gp|3g2|flv|f4v|wmv|asf|ogv|ogg|ogm|divx|xvid|dv|qt|mqv|hevc|h265|h264|jpg|jpeg|png|gif|webp)$/i, ''),
+              file: file,
+              createdAt: Date.now(),
+              sourceType: 'local',
+              isCached: false,
+            };
+
+            await addVideoZip(newVideo);
+            processedCount++;
+          }
+          
+          // Immediately cleanup extracted file to free memory
           try {
             sevenZip.FS.unlink(filePath);
           } catch (e) {
             // Ignore
+          }
+          
+          // Force garbage collection hint
+          if (processedCount % 5 === 0) {
+            // Process in batches to allow GC
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
         } catch (err) {
           console.error(`Error processing ${fileName}:`, err);
         }
       }
 
-      // Cleanup archive
+      // If mediaFiles is empty but we have a password, try extracting everything with wildcard
+      if (mediaFiles.length === 0 && archivePassword) {
+        setExtractionProgress('Attempting blind extraction with password...');
+        
+        try {
+          // Clear output directory
+          try {
+            const existing = sevenZip.FS.readdir(outputDir);
+            for (const entry of existing) {
+              if (entry !== '.' && entry !== '..') {
+                sevenZip.FS.unlink(outputDir + entry);
+              }
+            }
+          } catch (e) { /* ignore */ }
+          
+          // Extract all files using wildcard
+          const extractArgs = ['e', `-p${archivePassword}`, archivePath, `-o${outputDir}`, '-y', '-bb0', '-r'];
+          const result = sevenZip.callMain(extractArgs);
+          
+          if (result === 0) {
+            // Read all extracted files
+            const extractedFiles = sevenZip.FS.readdir(outputDir).filter(f => f !== '.' && f !== '..');
+            console.log('Blind extraction found files:', extractedFiles);
+            
+            for (const extractedName of extractedFiles) {
+              const lowerName = extractedName.toLowerCase();
+              const isMedia = videoExtensions.some(ext => lowerName.endsWith(ext)) || 
+                              imageExtensions.some(ext => lowerName.endsWith(ext));
+              
+              if (isMedia) {
+                try {
+                  const filePath = outputDir + extractedName;
+                  const fileData = sevenZip.FS.readFile(filePath);
+                  const uint8Data = new Uint8Array(fileData);
+                  const blob = new Blob([uint8Data]);
+                  
+                  // Determine mime type
+                  let mimeType = 'application/octet-stream';
+                  if (lowerName.endsWith('.mp4')) mimeType = 'video/mp4';
+                  else if (lowerName.endsWith('.webm')) mimeType = 'video/webm';
+                  else if (lowerName.endsWith('.mov')) mimeType = 'video/quicktime';
+                  else if (lowerName.endsWith('.mkv')) mimeType = 'video/x-matroska';
+                  else if (lowerName.endsWith('.avi')) mimeType = 'video/x-msvideo';
+                  else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mimeType = 'image/jpeg';
+                  else if (lowerName.endsWith('.png')) mimeType = 'image/png';
+                  else if (lowerName.endsWith('.gif')) mimeType = 'image/gif';
+                  else if (lowerName.endsWith('.webp')) mimeType = 'image/webp';
+
+                  const file = new File([blob], extractedName, { type: mimeType });
+
+                  const newVideo: VideoZip = {
+                    id: crypto.randomUUID(),
+                    folderId: newFolder.id,
+                    name: extractedName.replace(/\.(mp4|webm|mov|mkv|avi|m4v|mcgi|m2ts|ts|m2t|mts|m4p|3gp|3g2|flv|f4v|wmv|asf|ogv|ogg|ogm|divx|xvid|dv|qt|mqv|hevc|h265|h264|jpg|jpeg|png|gif|webp)$/i, ''),
+                    file: file,
+                    createdAt: Date.now(),
+                    sourceType: 'local',
+                    isCached: false,
+                  };
+
+                  await addVideoZip(newVideo);
+                  processedCount++;
+                } catch (err) {
+                  console.error(`Error processing blind-extracted file ${extractedName}:`, err);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Blind extraction failed:', err);
+        }
+      }
+
+      // Cleanup
       try {
         sevenZip.FS.unlink(archivePath);
+        // Clean up any remaining files in output dir
+        const remaining = sevenZip.FS.readdir(outputDir);
+        for (const entry of remaining) {
+          if (entry !== '.' && entry !== '..') {
+            try {
+              sevenZip.FS.unlink(outputDir + entry);
+            } catch (e) { /* ignore */ }
+          }
+        }
       } catch (e) {
         // Ignore
       }
 
       console.log(`Successfully imported ${processedCount} files from 7z archive`);
+      
+      if (processedCount === 0) {
+        throw new Error('No media files could be extracted. The archive may be password protected or contain no supported media files.');
+      }
+      
       onSuccess(newFolder.id);
       onClose();
     } catch (err) {

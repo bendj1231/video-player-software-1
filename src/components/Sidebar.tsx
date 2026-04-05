@@ -90,6 +90,7 @@ export function Sidebar({
     <motion.div
       initial={false}
       animate={{ width: isOpen ? 320 : 80 }}
+      data-sidebar="true"
       className={clsx(
         "h-screen flex flex-col relative z-50 transition-all duration-500 shrink-0 backdrop-blur-xl",
         theme === 'dark' && "bg-zinc-900/80 border-r border-white/10",
@@ -101,14 +102,15 @@ export function Sidebar({
     >
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="absolute -right-4 top-10 glass-button rounded-full p-2 text-white z-50 hover:scale-110 transition-transform"
+        className="absolute -right-4 top-10 glass-button rounded-full p-3 min-w-[44px] min-h-[44px] text-white z-50 active:scale-95 transition-transform touch-manipulation"
+        aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
       >
         {isOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
       </button>
 
       <div className={clsx(
-        "flex flex-col gap-4 mt-16 flex-1 overflow-y-auto",
-        isOpen ? "p-6" : "p-4 items-center"
+        "flex flex-col gap-3 mt-16 flex-1 overflow-y-auto overscroll-contain",
+        isOpen ? "p-4" : "p-3 items-center"
       )}>
         <SidebarItem icon={<Home size={28} />} label="Home" isOpen={isOpen} active={currentView === 'home'} onClick={() => setView('home')} />
         
@@ -152,9 +154,10 @@ export function Sidebar({
                       <button
                         onClick={(e) => toggleFolder(folder.id, e)}
                         className={clsx(
-                          "p-1 rounded transition-colors",
-                          theme === 'light' ? "hover:bg-black/10" : "hover:bg-white/10"
+                          "p-2 min-w-[44px] min-h-[44px] rounded-lg transition-colors active:scale-95 touch-manipulation flex items-center justify-center",
+                          theme === 'light' ? "hover:bg-black/10 active:bg-black/20" : "hover:bg-white/10 active:bg-white/20"
                         )}
+                        aria-label={expandedFolders.has(folder.id) ? "Collapse folder" : "Expand folder"}
                       >
                         <ChevronDown 
                           size={14} 
@@ -170,14 +173,14 @@ export function Sidebar({
                     <button
                       onClick={() => handleFolderClick(folder.id)}
                       className={clsx(
-                        "flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors",
+                        "flex-1 flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98] touch-manipulation",
                         folder.localFolderPath 
                           ? theme === 'light' 
-                            ? "text-emerald-600 hover:bg-emerald-500/10" 
-                            : "text-emerald-400 hover:bg-emerald-500/10"
+                            ? "text-emerald-600 hover:bg-emerald-500/10 active:bg-emerald-500/20" 
+                            : "text-emerald-400 hover:bg-emerald-500/10 active:bg-emerald-500/20"
                           : theme === 'light'
-                            ? "text-zinc-600 hover:bg-black/5 hover:text-zinc-900"
-                            : "text-zinc-400 hover:bg-white/5 hover:text-white"
+                            ? "text-zinc-600 hover:bg-black/5 hover:text-zinc-900 active:bg-black/10"
+                            : "text-zinc-400 hover:bg-white/5 hover:text-white active:bg-white/10"
                       )}
                     >
                       {folder.localFolderPath ? (
@@ -202,14 +205,14 @@ export function Sidebar({
                           key={subfolder.id}
                           onClick={() => handleFolderClick(subfolder.id)}
                           className={clsx(
-                            "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors",
+                            "w-full flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98] touch-manipulation",
                             subfolder.localFolderPath 
                               ? theme === 'light'
-                                ? "text-emerald-600 hover:bg-emerald-500/10"
-                                : "text-emerald-400 hover:bg-emerald-500/10"
+                                ? "text-emerald-600 hover:bg-emerald-500/10 active:bg-emerald-500/20"
+                                : "text-emerald-400 hover:bg-emerald-500/10 active:bg-emerald-500/20"
                               : theme === 'light'
-                                ? "text-zinc-500 hover:bg-black/5 hover:text-zinc-700"
-                                : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+                                ? "text-zinc-500 hover:bg-black/5 hover:text-zinc-700 active:bg-black/10"
+                                : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300 active:bg-white/10"
                           )}
                         >
                           <Folder size={14} />
@@ -323,12 +326,12 @@ function SidebarItem({
       onClick={onClick}
       title={!isOpen ? label : undefined}
       className={clsx(
-        "flex items-center rounded-2xl transition-all duration-300 overflow-hidden whitespace-nowrap w-full",
-        isOpen ? "gap-4 p-4" : "justify-center p-3 w-12 h-12",
-        active ? activeClasses : "text-zinc-400 hover:bg-white/5 hover:text-white"
+        "flex items-center rounded-2xl transition-all duration-300 overflow-hidden whitespace-nowrap w-full touch-manipulation",
+        isOpen ? "gap-4 p-4 min-h-[56px]" : "justify-center p-3 w-14 h-14 min-w-[56px] min-h-[56px]",
+        active ? activeClasses : "text-zinc-400 hover:bg-white/5 hover:text-white active:bg-white/10"
       )}
     >
-      <div className="flex items-center justify-center shrink-0">{icon}</div>
+      <div className="flex items-center justify-center shrink-0 w-8 h-8">{icon}</div>
       {isOpen && (
         <>
           <span className="font-medium tracking-wide text-base flex-1 text-left">{label}</span>

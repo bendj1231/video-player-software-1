@@ -168,7 +168,6 @@ export default function App() {
         zipBlob={playingVideo.blob}
         videoId={playingVideo.id || undefined}
         onClose={() => setPlayingVideo({ blob: null, id: null })}
-        onDelete={handleDeleteVideo}
         isMuted={isMuted}
         blurEnabled={privacyMode === 'blur'}
       />
