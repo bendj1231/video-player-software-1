@@ -331,7 +331,7 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
           
           <button
             onClick={handleImport}
-            disabled={!selectedFile || isUploading || needsPassword}
+            disabled={!selectedFile || !archiveExplorer || isUploading || needsPassword}
             className="flex-1 py-3 px-4 rounded-xl bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:opacity-50 text-white font-medium transition-colors flex items-center justify-center gap-2"
           >
             {isUploading ? (
