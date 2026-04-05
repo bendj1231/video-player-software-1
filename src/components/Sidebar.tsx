@@ -103,7 +103,7 @@ export function Sidebar({
     >
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="absolute -right-4 top-10 glass-button rounded-full p-3 min-w-[44px] min-h-[44px] text-white z-50 active:scale-95 transition-transform touch-manipulation"
+        className="absolute -right-4 top-10 glass-button rounded-full p-3 min-w-[44px] min-h-[44px] text-white z-50 active:scale-95 transition-transform"
         aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
       >
         {isOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
@@ -158,7 +158,7 @@ export function Sidebar({
                       <button
                         onClick={(e) => toggleFolder(folder.id, e)}
                         className={clsx(
-                          "p-2 min-w-[44px] min-h-[44px] rounded-lg transition-colors active:scale-95 touch-manipulation flex items-center justify-center",
+                          "p-2 min-w-[44px] min-h-[44px] rounded-lg transition-colors active:scale-95 flex items-center justify-center",
                           theme === 'light' ? "hover:bg-black/10 active:bg-black/20" : "hover:bg-white/10 active:bg-white/20"
                         )}
                         aria-label={expandedFolders.has(folder.id) ? "Collapse folder" : "Expand folder"}
@@ -177,7 +177,7 @@ export function Sidebar({
                     <button
                       onClick={() => handleFolderClick(folder.id)}
                       className={clsx(
-                        "flex-1 flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98] touch-manipulation",
+                        "flex-1 flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98]",
                         folder.localFolderPath 
                           ? theme === 'light' 
                             ? "text-emerald-600 hover:bg-emerald-500/10 active:bg-emerald-500/20" 
@@ -209,7 +209,7 @@ export function Sidebar({
                           key={subfolder.id}
                           onClick={() => handleFolderClick(subfolder.id)}
                           className={clsx(
-                            "w-full flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98] touch-manipulation",
+                            "w-full flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98]",
                             subfolder.localFolderPath 
                               ? theme === 'light'
                                 ? "text-emerald-600 hover:bg-emerald-500/10 active:bg-emerald-500/20"
