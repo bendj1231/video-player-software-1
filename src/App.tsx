@@ -23,66 +23,21 @@ export default function App() {
   const [playingVideo, setPlayingVideo] = useState<{ blob: Blob | null, id: string | null }>({ blob: null, id: null });
   const [privacyMode, setPrivacyMode] = useState<'none' | 'blur' | 'cover'>('none');
   const [isMuted, setIsMuted] = useState(true);
-  const [theme, setThemeState] = useState<Theme>('dark');
   const [showSettings, setShowSettings] = useState(false);
-  const [isIPadPro, setIsIPadPro] = useState(false);
-
-  // Detect iPad Pro on mount
-  useEffect(() => {
-    setIsIPadPro(isIPadPro129());
-  }, []);
-
-  // Debug theme changes
-  const setTheme = useCallback((newTheme: Theme) => {
-    console.log('Theme changing from', theme, 'to', newTheme);
-    console.trace('Theme change trace');
-    setThemeState(newTheme);
-  }, [theme]);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Get theme-based styles
-  const getThemeStyles = () => {
-    switch (theme) {
-      case 'light':
-        return {
-          bg: 'bg-neutral-100',
-          text: 'text-zinc-900',
-          gradient1: 'bg-indigo-400/10',
-          gradient2: 'bg-emerald-400/8',
-          gradient3: 'bg-purple-400/8',
-        };
-      case 'futuristic':
-        return {
-          bg: 'bg-slate-950',
-          text: 'text-white',
-          gradient1: 'bg-cyan-500/15',
-          gradient2: 'bg-blue-500/10',
-          gradient3: 'bg-purple-500/10',
-        };
-      case 'smokey':
-        return {
-          bg: 'bg-neutral-800',
-          text: 'text-white',
-          gradient1: 'bg-neutral-500/15',
-          gradient2: 'bg-zinc-500/10',
-          gradient3: 'bg-stone-500/10',
-        };
-      default: // dark
-        return {
-          bg: 'bg-[#020202]',
-          text: 'text-white',
-          gradient1: 'bg-indigo-600/10',
-          gradient2: 'bg-emerald-600/8',
-          gradient3: 'bg-purple-600/8',
-        };
-    }
+  // Get theme-based styles - DARK MODE ONLY
+  const themeStyles = {
+    bg: 'bg-[#020202]',
+    text: 'text-white',
+    gradient1: 'bg-indigo-600/10',
+    gradient2: 'bg-emerald-600/8',
+    gradient3: 'bg-purple-600/8',
   };
 
-  const themeStyles = getThemeStyles();
-
   const handleSetView = (view: string) => {
-    console.log('View changing to:', view, 'current theme:', theme);
+    console.log('View changing to:', view);
     setCurrentView(view);
     if (view !== 'folder') {
       setSelectedFolderId(null);
@@ -163,16 +118,13 @@ export default function App() {
         setIsOpen={setSidebarOpen}
         onOpenSettings={() => setShowSettings(true)}
         onSelectFolder={handleSelectFolder}
-        theme={theme}
-        setTheme={setTheme}
-        isIPadPro={isIPadPro}
       />
 
       <main className="flex-1 overflow-y-auto relative z-10">
         <div className={currentView === 'galleries' || currentView === 'multiview' ? '' : 'max-w-7xl mx-auto'}>
-          {currentView === 'home' && <HomeView onPlayVideo={handlePlayVideo} onSelectFolder={handleSelectFolder} blurEnabled={privacyMode === 'blur'} theme={theme} />}
-          {currentView === 'multiview' && <MultiViewPlayer onBack={() => setCurrentView('home')} theme={theme} onFullscreenChange={handleMultiviewFullscreenChange} />}
-          {currentView === 'galleries' && <GalleryView onSelectFolder={handleSelectFolder} blurEnabled={privacyMode === 'blur'} theme={theme} />}
+          {currentView === 'home' && <HomeView onPlayVideo={handlePlayVideo} onSelectFolder={handleSelectFolder} blurEnabled={privacyMode === 'blur'} />}
+          {currentView === 'multiview' && <MultiViewPlayer onBack={() => setCurrentView('home')} onFullscreenChange={handleMultiviewFullscreenChange} />}
+          {currentView === 'galleries' && <GalleryView onSelectFolder={handleSelectFolder} blurEnabled={privacyMode === 'blur'} />}
           {currentView === 'folder' && selectedFolderId && (
             <FolderView
               folderId={selectedFolderId}
@@ -181,7 +133,6 @@ export default function App() {
               blurEnabled={privacyMode === 'blur'}
               onNavigateToFolder={handleNavigateToFolder}
               isMuted={isMuted}
-              theme={theme}
             />
           )}
         </div>
@@ -197,8 +148,6 @@ export default function App() {
       <ThemeSettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
-        currentTheme={theme}
-        onThemeChange={setTheme}
       />
     </div>
   );
