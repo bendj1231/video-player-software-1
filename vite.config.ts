@@ -8,6 +8,24 @@ import fs from 'fs';
 function copyLibArchivePlugin() {
   return {
     name: 'copy-libarchive',
+    configureServer(server: any) {
+      // Serve libarchive.js files in dev mode
+      server.middlewares.use('/libarchive.js', (req: any, res: any, next: any) => {
+        const filePath = req.url?.replace('/libarchive.js', '');
+        const fullPath = path.join(__dirname, 'node_modules/libarchive.js/dist', filePath || '');
+        
+        if (fs.existsSync(fullPath)) {
+          const content = fs.readFileSync(fullPath);
+          const ext = path.extname(fullPath);
+          const contentType = ext === '.wasm' ? 'application/wasm' : 
+                           ext === '.js' ? 'application/javascript' : 'text/plain';
+          res.setHeader('Content-Type', contentType);
+          res.end(content);
+        } else {
+          next();
+        }
+      });
+    },
     writeBundle() {
       const sourceDir = path.resolve(__dirname, 'node_modules/libarchive.js/dist');
       const destDir = path.resolve(__dirname, 'dist/libarchive.js');
