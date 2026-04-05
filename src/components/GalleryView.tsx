@@ -572,8 +572,8 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
                   sourceType: 'local',
                   isCached: false,
                 };
-                await addVideoZip(newVideo);
-                fileCount++;
+                const result = await addVideoZip(newVideo);
+                if (result.success) fileCount++;
               } catch (err) {
                 console.error('Error reading file:', entry.name, err);
               }
@@ -674,8 +674,8 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
           sourceType: 'local',
           isCached: false,
         };
-        await addVideoZip(newVideo);
-        fileCount++;
+        const result = await addVideoZip(newVideo);
+        if (result.success) fileCount++;
       }
     }
     
@@ -994,12 +994,12 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
             isCached: false,
           };
           
-          const added = await addVideoZip(newVideo);
-          if (added) {
+          const result = await addVideoZip(newVideo);
+          if (result.success) {
             processedCount++;
             console.log(`Successfully imported: ${cleanName}`);
           } else {
-            console.log(`Skipped duplicate: ${cleanName}`);
+            console.log(`Skipped: ${cleanName} - ${result.message}`);
           }
         } catch (err) {
           errorCount++;
@@ -1073,8 +1073,8 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
             sourceType: 'local',
             isCached: false,
           };
-          await addVideoZip(newVideo);
-          fileCount++;
+          const result = await addVideoZip(newVideo);
+          if (result.success) fileCount++;
         }
       }
       

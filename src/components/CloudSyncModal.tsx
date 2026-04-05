@@ -85,8 +85,12 @@ export function CloudSyncModal({ folderId, folderName, onClose }: CloudSyncModal
         file: blob,
         createdAt: Date.now(),
       };
-      await addVideoZip(newVideo);
-      await loadVideos();
+      const result = await addVideoZip(newVideo);
+      if (result.success) {
+        await loadVideos();
+      } else {
+        console.warn('Failed to add video:', result.message);
+      }
     } catch (err) {
       console.error('Download failed:', err);
       alert('Failed to download from cloud');

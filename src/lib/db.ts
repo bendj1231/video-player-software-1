@@ -1,4 +1,11 @@
 import { openDB, DBSchema } from 'idb';
+import { 
+  getCacheSettings, 
+  calculateTotalCacheSize, 
+  getVideoSizeMB, 
+  wouldExceedCacheLimit, 
+  getVideosToEvict 
+} from './storageCache';
 
 export interface Folder {
   id: string;
@@ -94,7 +101,7 @@ export async function getVideosByFolder(folderId: string) {
   return db.getAllFromIndex('videoZips', 'by-folder', folderId);
 }
 
-export async function addVideoZip(videoZip: VideoZip): Promise<boolean> {
+export async function addVideoZip(videoZip: VideoZip): Promise<{ success: boolean; message?: string }> {
   const db = await dbPromise;
   
   // Check if a video with the same name already exists in this folder
@@ -103,11 +110,46 @@ export async function addVideoZip(videoZip: VideoZip): Promise<boolean> {
   
   if (duplicate) {
     console.warn(`Video "${videoZip.name}" already exists in this folder. Skipping.`);
-    return false; // Indicate that no new video was added
+    return { success: false, message: `Video "${videoZip.name}" already exists in this folder.` };
+  }
+  
+  // Check cache limits before adding
+  const settings = getCacheSettings();
+  const newVideoSizeMB = getVideoSizeMB(videoZip);
+  
+  // Get all videos to calculate current cache size
+  const allVideos = await db.getAll('videoZips');
+  const currentSizeMB = allVideos.reduce((sum, v) => sum + getVideoSizeMB(v), 0);
+  
+  // Check if we need to evict videos to make room
+  if (wouldExceedCacheLimit(currentSizeMB, newVideoSizeMB, settings.maxSizeMB)) {
+    const spaceNeeded = (currentSizeMB + newVideoSizeMB) - settings.maxSizeMB;
+    
+    // Get videos sorted by eviction policy
+    const videosWithMeta = allVideos.map(v => ({
+      id: v.id,
+      sizeMB: getVideoSizeMB(v),
+      createdAt: v.createdAt
+    }));
+    
+    const toEvict = getVideosToEvict(videosWithMeta, spaceNeeded, settings.evictionPolicy);
+    
+    if (toEvict.length === 0) {
+      return { 
+        success: false, 
+        message: `Cannot add video: cache limit (${settings.maxSizeMB}MB) exceeded and no videos can be evicted.` 
+      };
+    }
+    
+    // Evict videos
+    console.log(`Cache limit reached. Evicting ${toEvict.length} video(s) to make ${spaceNeeded.toFixed(1)}MB space...`);
+    for (const videoId of toEvict) {
+      await db.delete('videoZips', videoId);
+    }
   }
   
   await db.put('videoZips', videoZip);
-  return true; // Indicate success
+  return { success: true };
 }
 
 export async function deleteVideoZip(id: string) {

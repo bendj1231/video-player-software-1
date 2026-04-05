@@ -118,7 +118,7 @@ function VideoCard({ video, onPlay, onViewImage, index, isMuted, onDelete }: {
               <video
                 ref={videoRef}
                 src={video.previewUrl}
-                className="w-full h-auto object-cover"
+                className="w-full h-auto object-cover video-card"
                 muted
                 loop
                 playsInline
@@ -454,10 +454,10 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     
     // Generate previews for ALL videos (Grok style)
     const withPreviews = await Promise.all(
-      fixedVids.map(async (video) => {
+      fixedVids.map(async (video, i) => {
         try {
           console.log(`Generating preview for ${video.name}, file type: ${video.file.type}, size: ${video.file.size}`);
-          const result = await getVideoPreview(video.file);
+          const result = await getVideoPreview(video.file, video.name);
           if (!result) {
             console.warn(`No preview generated for ${video.name}`);
           } else {
@@ -550,8 +550,8 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
         sourceType: 'local',
         isCached: false,
       };
-      await addVideoZip(newVideo);
-      fileCount++;
+      const result = await addVideoZip(newVideo);
+      if (result.success) fileCount++;
     }
     await loadData();
     setIsUploading(false);
@@ -596,8 +596,8 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
         sourceType: 'local',
         isCached: false,
       };
-      await addVideoZip(newVideo);
-      fileCount++;
+      const result = await addVideoZip(newVideo);
+      if (result.success) fileCount++;
     }
     
     await loadData();
@@ -819,8 +819,8 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
             isCached: false,
           };
           
-          await addVideoZip(newVideo);
-          extractedCount++;
+          const result = await addVideoZip(newVideo);
+          if (result.success) extractedCount++;
           
           // Update progress every 5 files
           if (extractedCount % 5 === 0) {
@@ -924,7 +924,7 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
         </div>
       )}
 
-      <div className={`flex-1 overflow-y-auto ${isDarkMode ? 'bg-black' : 'bg-white'}`}>
+      <div className="flex-1 overflow-y-auto bg-[#020202]">
         {/* Videos Section */}
         <div className={`columns-2 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 gap-1 ${blurEnabled ? 'blur-[20px]' : ''}`}>
           {videoItems.map((video, index) => (

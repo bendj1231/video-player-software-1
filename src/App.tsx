@@ -6,6 +6,7 @@ import { FolderView } from './components/FolderView';
 import { VideoPlayerModal } from './components/VideoPlayerModal';
 import { MultiViewPlayer } from './components/MultiViewPlayer';
 import { ThemeSettingsModal } from './components/ThemeSettingsModal';
+import { MindMapView } from './components/MindMapView';
 import { deleteVideoZip } from './lib/db';
 import { clearCache } from './lib/fileSystem';
 
@@ -124,6 +125,7 @@ export default function App() {
         <div className={currentView === 'galleries' || currentView === 'multiview' ? '' : 'max-w-7xl mx-auto'}>
           {currentView === 'home' && <HomeView onPlayVideo={handlePlayVideo} onSelectFolder={handleSelectFolder} blurEnabled={privacyMode === 'blur'} />}
           {currentView === 'multiview' && <MultiViewPlayer onBack={() => setCurrentView('home')} onFullscreenChange={handleMultiviewFullscreenChange} />}
+          {currentView === 'mindmap' && <MindMapView />}
           {currentView === 'galleries' && <GalleryView onSelectFolder={handleSelectFolder} blurEnabled={privacyMode === 'blur'} />}
           {currentView === 'folder' && selectedFolderId && (
             <FolderView

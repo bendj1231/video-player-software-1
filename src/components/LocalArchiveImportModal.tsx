@@ -245,8 +245,8 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
               isCached: false,
             };
             
-            await addVideoZip(newVideo);
-            processedCount++;
+            const result = await addVideoZip(newVideo);
+            if (result.success) processedCount++;
           } catch (err) {
             console.error(`Error extracting file ${item.file.name}:`, err);
           }
@@ -457,8 +457,8 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
                 isCached: false,
               };
 
-              await addVideoZip(newVideo);
-              nestedCount++;
+              const result = await addVideoZip(newVideo);
+              if (result.success) nestedCount++;
             } catch (err) {
               console.error(`Error processing nested file ${path}:`, err);
             }
@@ -539,8 +539,8 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
               isCached: false,
             };
 
-            await addVideoZip(newVideo);
-            processedCount++;
+            const result = await addVideoZip(newVideo);
+            if (result.success) processedCount++;
           }
           
           // Immediately cleanup extracted file to free memory
@@ -620,8 +620,8 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
                     isCached: false,
                   };
 
-                  await addVideoZip(newVideo);
-                  processedCount++;
+                  const result = await addVideoZip(newVideo);
+                  if (result.success) processedCount++;
                 } catch (err) {
                   console.error(`Error processing blind-extracted file ${extractedName}:`, err);
                 }

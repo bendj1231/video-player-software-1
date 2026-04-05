@@ -112,6 +112,15 @@ export function Sidebar({
           active={currentView === 'multiview'} 
           onClick={() => { console.log('MultiView clicked'); setView('multiview'); }} 
         />
+
+        <SidebarItem 
+          id="mindmap-btn"
+          icon={<FolderOpen size={28} />} 
+          label="MindMap" 
+          isOpen={isOpen} 
+          active={currentView === 'mindmap'} 
+          onClick={() => { console.log('MindMap clicked'); setView('mindmap'); }} 
+        />
         
         <div className="relative">
           <SidebarItem 

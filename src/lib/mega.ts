@@ -219,8 +219,8 @@ async function extractAndImportZip(
       isCached: true,
     };
     
-    await addVideoZip(newVideo);
-    imported++;
+    const result = await addVideoZip(newVideo);
+    if (result.success) imported++;
     
     onProgress(
       `Importing ${name}...`,
@@ -343,8 +343,8 @@ export async function downloadFromMegaAndImport(
         isCached: true,
       };
       
-      await addVideoZip(newVideo);
-      importedCount = 1;
+      const result = await addVideoZip(newVideo);
+      if (result.success) importedCount = 1;
     }
     
     onProgress({

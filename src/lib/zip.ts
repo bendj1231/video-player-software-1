@@ -53,10 +53,42 @@ export function getVideoUrl(blob: Blob): { url: string; cleanup: () => void } {
   };
 }
 
-export async function getVideoPreview(blob: Blob): Promise<{ url: string; cleanup: () => void } | null> {
-  // If it's already a video or image file, don't try to extract from zip
-  if (blob.type.startsWith('video/') || blob.type.startsWith('image/')) {
-    const url = URL.createObjectURL(blob);
+export async function getVideoPreview(blob: Blob, fileName?: string): Promise<{ url: string; cleanup: () => void } | null> {
+  // Handle empty blobs
+  if (!blob || blob.size === 0) {
+    console.warn('Empty blob provided to getVideoPreview');
+    return null;
+  }
+
+  // Determine the actual MIME type, using fileName as fallback for detection
+  let mimeType = blob.type;
+  const name = fileName?.toLowerCase() || '';
+  
+  // If blob type is missing or generic, try to infer from filename
+  if (!mimeType || mimeType === 'application/octet-stream' || mimeType === '') {
+    if (name.endsWith('.mp4') || name.endsWith('.m4v') || name.endsWith('.mcgi')) mimeType = 'video/mp4';
+    else if (name.endsWith('.webm')) mimeType = 'video/webm';
+    else if (name.endsWith('.mov')) mimeType = 'video/quicktime';
+    else if (name.endsWith('.mkv')) mimeType = 'video/x-matroska';
+    else if (name.endsWith('.avi')) mimeType = 'video/x-msvideo';
+    else if (name.endsWith('.jpg') || name.endsWith('.jpeg')) mimeType = 'image/jpeg';
+    else if (name.endsWith('.png')) mimeType = 'image/png';
+    else if (name.endsWith('.gif')) mimeType = 'image/gif';
+    else if (name.endsWith('.webp')) mimeType = 'image/webp';
+    else if (name.endsWith('.bmp')) mimeType = 'image/bmp';
+    else if (blob.size > 100000) {
+      // Assume video if large file with no type
+      mimeType = 'video/mp4';
+    }
+  }
+
+  // If it's a video or image file, create URL directly
+  if (mimeType.startsWith('video/') || mimeType.startsWith('image/')) {
+    // Recreate blob with correct MIME type if needed
+    const finalBlob = mimeType === blob.type 
+      ? blob 
+      : new Blob([blob], { type: mimeType });
+    const url = URL.createObjectURL(finalBlob);
     return {
       url,
       cleanup: () => URL.revokeObjectURL(url)
@@ -68,8 +100,8 @@ export async function getVideoPreview(blob: Blob): Promise<{ url: string; cleanu
   if (result) return result;
   
   // Check if it's an image (no type but small size)
-  const isImage = blob.type.startsWith('image/') ||
-                  (blob.type === '' && blob.size < 50000000); // Assume images under 50MB if no type
+  const isImage = mimeType.startsWith('image/') ||
+                  (mimeType === '' && blob.size < 50000000); // Assume images under 50MB if no type
   
   if (isImage) {
     const url = URL.createObjectURL(blob);
@@ -80,8 +112,8 @@ export async function getVideoPreview(blob: Blob): Promise<{ url: string; cleanu
   }
   
   // If it's a video file or large file, create URL directly
-  const isVideo = blob.type.startsWith('video/') || 
-                  blob.type === 'application/octet-stream' ||
+  const isVideo = mimeType.startsWith('video/') || 
+                  mimeType === 'application/octet-stream' ||
                   blob.size > 100000;
   
   if (isVideo) {

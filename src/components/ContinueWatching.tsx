@@ -80,7 +80,7 @@ export function ContinueWatching({ onPlayVideo, blurEnabled }: ContinueWatchingP
 
     const withPreviews = await Promise.all(
       sortedVideos.map(async (video) => {
-        const result = await getVideoPreview(video.file);
+        const result = await getVideoPreview(video.file, video.name);
         const historyItem = watchHistory.find(h => h.videoId === video.id);
         return {
           ...video,

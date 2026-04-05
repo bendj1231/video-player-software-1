@@ -66,7 +66,7 @@ export function Media3DCarousel({ onPlayVideo, blurEnabled }: Media3DCarouselPro
     // Get previews for all videos
     const withPreviews = await Promise.all(
       allVideos.slice(0, 20).map(async (video) => {
-        const result = await getVideoPreview(video.file);
+        const result = await getVideoPreview(video.file, video.name);
         return {
           ...video,
           previewUrl: result?.url,

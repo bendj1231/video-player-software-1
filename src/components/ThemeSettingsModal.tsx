@@ -1,7 +1,9 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Monitor, Smartphone, Laptop, Tablet } from 'lucide-react';
+import { X, Monitor, Smartphone, Laptop, Tablet, HardDrive, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { clsx } from 'clsx';
+import { getCacheSettings, setCacheSettings, CACHE_SIZE_OPTIONS, formatSize } from '../lib/storageCache';
+import { getVideosByFolder, getFolders, dbPromise } from '../lib/db';
 
 interface ThemeSettingsModalProps {
   isOpen: boolean;
@@ -80,12 +82,54 @@ function detectDevice(): GraphicsProfile {
 export function ThemeSettingsModal({ isOpen, onClose }: ThemeSettingsModalProps) {
   const [selectedProfile, setSelectedProfile] = useState<GraphicsProfile>('auto');
   const [detectedDevice, setDetectedDevice] = useState<GraphicsProfile>('auto');
+  const [cacheSettings, setCacheSettingsState] = useState(getCacheSettings());
+  const [currentCacheSize, setCurrentCacheSize] = useState(0);
+  const [isCalculatingCache, setIsCalculatingCache] = useState(false);
 
   useEffect(() => {
     const detected = detectDevice();
     setDetectedDevice(detected);
     setSelectedProfile(detected);
   }, []);
+
+  // Calculate current cache size when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      calculateCacheSize();
+    }
+  }, [isOpen]);
+
+  const calculateCacheSize = async () => {
+    setIsCalculatingCache(true);
+    try {
+      const db = await dbPromise;
+      const allVideos = await db.getAll('videoZips');
+      const totalBytes = allVideos.reduce((sum, v) => sum + (v.file?.size || 0), 0);
+      setCurrentCacheSize(totalBytes);
+    } catch (err) {
+      console.error('Error calculating cache size:', err);
+    } finally {
+      setIsCalculatingCache(false);
+    }
+  };
+
+  const handleCacheSizeChange = (sizeMB: number) => {
+    setCacheSettings({ maxSizeMB: sizeMB as any });
+    setCacheSettingsState(getCacheSettings());
+  };
+
+  const handleClearCache = async () => {
+    if (!confirm('Clear all cached videos? This cannot be undone.')) return;
+    try {
+      const db = await dbPromise;
+      await db.clear('videoZips');
+      setCurrentCacheSize(0);
+      alert('Cache cleared successfully');
+    } catch (err) {
+      console.error('Error clearing cache:', err);
+      alert('Failed to clear cache');
+    }
+  };
 
   const applyProfile = (profileId: GraphicsProfile) => {
     setSelectedProfile(profileId);
@@ -201,6 +245,69 @@ export function ThemeSettingsModal({ isOpen, onClose }: ThemeSettingsModalProps)
                     </button>
                   );
                 })}
+              </div>
+
+              {/* Storage / Cache Settings */}
+              <div className="p-4 border-t border-white/10">
+                <div className="flex items-center gap-3 mb-4">
+                  <HardDrive size={20} className="text-zinc-400" />
+                  <div>
+                    <p className="text-sm text-zinc-400">Storage Cache</p>
+                    <p className="text-white font-medium">
+                      {isCalculatingCache ? 'Calculating...' : formatSize(currentCacheSize)} used
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-sm text-zinc-500 mb-3">Max Cache Size</p>
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  {CACHE_SIZE_OPTIONS.map((option) => {
+                    const isActive = cacheSettings.maxSizeMB === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        onClick={() => handleCacheSizeChange(option.value)}
+                        className={clsx(
+                          "py-2 px-3 rounded-lg text-sm font-medium transition-all",
+                          isActive
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Progress bar showing cache usage */}
+                <div className="mb-4">
+                  <div className="flex justify-between text-xs text-zinc-500 mb-1">
+                    <span>Cache Usage</span>
+                    <span>{Math.min(100, Math.round((currentCacheSize / (cacheSettings.maxSizeMB * 1024 * 1024)) * 100))}%</span>
+                  </div>
+                  <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                    <div 
+                      className={clsx(
+                        "h-full transition-all duration-300",
+                        (currentCacheSize / (cacheSettings.maxSizeMB * 1024 * 1024)) > 0.9 ? 'bg-red-500' : 'bg-emerald-500'
+                      )}
+                      style={{ width: `${Math.min(100, (currentCacheSize / (cacheSettings.maxSizeMB * 1024 * 1024)) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleClearCache}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-sm"
+                >
+                  <Trash2 size={16} />
+                  Clear All Cache
+                </button>
+                
+                <p className="text-xs text-zinc-500 mt-3">
+                  When cache is full, oldest videos are automatically removed to make room for new ones.
+                </p>
               </div>
 
               {/* Current Settings Summary */}

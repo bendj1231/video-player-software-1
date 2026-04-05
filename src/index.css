@@ -117,12 +117,20 @@
     background-image: none !important;
   }
   
-  /* Content visibility for off-screen items - but NOT videos */
-  .gallery-grid > *:not(video):not(.video-card),
-  .folder-item:not(.video-card) {
-    content-visibility: auto !important;
-    contain-intrinsic-size: 0 200px !important;
-    contain: layout style paint !important;
+  /* REMOVE content-visibility completely - it breaks video rendering */
+  .gallery-grid > *,
+  .folder-item,
+  main,
+  .fixed,
+  .absolute {
+    content-visibility: visible !important;
+    contain: none !important;
+  }
+  
+  /* Force dark mode on all elements */
+  #root, main, .bg-black, .bg-white, [class*="bg-"] {
+    background-color: #020202 !important;
+    color: white !important;
   }
   
   /* Ensure videos are always visible and rendered */
@@ -234,8 +242,14 @@
   
   .gallery-grid > *,
   .folder-item {
-    content-visibility: auto !important;
-    contain-intrinsic-size: 0 200px !important;
+    content-visibility: visible !important;
+    contain: none !important;
+  }
+  
+  /* Force dark mode in portrait */
+  #root, main, body, html {
+    background-color: #020202 !important;
+    color: white !important;
   }
   
   /* Ensure videos render in portrait */
