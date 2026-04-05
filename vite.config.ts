@@ -96,8 +96,8 @@ function copy7zWasmPlugin() {
         console.log('Created dest dir');
       }
       
-      // Copy main JS file
-      const files = ['7zz.es6.js', '7zz.wasm'];
+      // Copy UMD version (works as classic script)
+      const files = ['7zz.umd.js', '7zz.wasm'];
       for (const file of files) {
         const src = path.join(sourceDir, file);
         const dest = path.join(destDir, file);

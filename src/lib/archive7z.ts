@@ -21,8 +21,8 @@ export async function init7zWasm(): Promise<any> {
       return sevenZipModule;
     }
     
-    // Dynamically load the script
-    await loadScript('/7z-wasm/7zz.es6.js');
+    // Dynamically load the UMD script (works as classic script)
+    await loadScript('/7z-wasm/7zz.umd.js');
     
     // Wait for it to be available
     let retries = 0;
@@ -55,7 +55,7 @@ function loadScript(src: string): Promise<void> {
     }
     const script = document.createElement('script');
     script.src = src;
-    script.type = 'module'; // Load as ES module
+    script.type = 'text/javascript'; // Classic script for UMD
     script.onload = () => resolve();
     script.onerror = () => reject(new Error(`Failed to load ${src}`));
     document.head.appendChild(script);
