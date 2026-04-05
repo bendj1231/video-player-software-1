@@ -112,12 +112,7 @@ export default defineConfig(({mode}) => {
     build: {
       target: 'esnext',
       rollupOptions: {
-        external: ['7z-wasm'],
-        output: {
-          paths: {
-            '7z-wasm': '/7z-wasm/7zz.es6.js'
-          }
-        }
+        // Don't externalize 7z-wasm - let it bundle but we'll handle WASM loading
       }
     },
   };
