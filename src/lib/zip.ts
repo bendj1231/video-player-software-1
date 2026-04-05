@@ -54,11 +54,20 @@ export function getVideoUrl(blob: Blob): { url: string; cleanup: () => void } {
 }
 
 export async function getVideoPreview(blob: Blob): Promise<{ url: string; cleanup: () => void } | null> {
-  // First try to extract from zip
+  // If it's already a video or image file, don't try to extract from zip
+  if (blob.type.startsWith('video/') || blob.type.startsWith('image/')) {
+    const url = URL.createObjectURL(blob);
+    return {
+      url,
+      cleanup: () => URL.revokeObjectURL(url)
+    };
+  }
+  
+  // First try to extract from zip (only for non-video files)
   const result = await extractVideoFromZip(blob);
   if (result) return result;
   
-  // Check if it's an image
+  // Check if it's an image (no type but small size)
   const isImage = blob.type.startsWith('image/') ||
                   (blob.type === '' && blob.size < 50000000); // Assume images under 50MB if no type
   

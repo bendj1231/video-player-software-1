@@ -7,6 +7,7 @@ import { Archive } from 'libarchive.js';
 import { VirtualArchiveExplorer } from '../lib/archive';
 import { initializeLocalFolder, saveFileToDirectory, getStoredDirectoryHandle } from '../lib/fileSystem';
 import { extractExifData, getBestDate, groupPhotosByDate } from '../lib/exif';
+import { getVideoPreview } from '../lib/zip';
 
 interface VideoWithPreview extends VideoZip {
   previewUrl?: string;
@@ -709,8 +710,10 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     const confirmExtract = confirm(`Extract all media files from ${folder.name}? This may take a while for large archives.`);
     if (!confirmExtract) return;
 
+    // Always prompt for password first
+    const password = prompt('Enter archive password (leave empty if no password):') || '';
+
     setIsExtracting(true);
-    let password = folder.archivePassword || '';
     
     try {
       // Initialize libarchive
@@ -719,37 +722,39 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
       });
 
       // Open the archive
-      let archive = await Archive.open(folder.archiveFile);
+      const archive = await Archive.open(folder.archiveFile);
       
-      // Try to get files - if it fails, might need password
-      let files: any[] = [];
-      try {
-        files = await archive.getFilesArray();
-      } catch (err: any) {
-        // Check if password is needed
-        if (err?.message?.toLowerCase().includes('password') || 
-            err?.message?.toLowerCase().includes('encrypted') ||
-            err?.toString()?.toLowerCase().includes('password')) {
-          // Prompt for password
-          password = prompt('This archive is password protected. Enter password:') || '';
-          if (!password) {
-            alert('Password required to extract archive');
-            setIsExtracting(false);
-            return;
+      // Get all files - may return empty if password needed
+      let files = await archive.getFilesArray();
+      
+      // If no files found, might be password protected
+      if (files.length === 0) {
+        console.log('No files found - archive may be password protected');
+        
+        // If password was provided, try re-opening
+        if (password) {
+          const archive2 = await Archive.open(folder.archiveFile);
+          files = await archive2.getFilesArray();
+        }
+        
+        // Still no files, need to prompt for password (if not already provided)
+        if (files.length === 0) {
+          const newPassword = prompt('This archive appears to be password protected. Enter password:') || '';
+          if (!newPassword) {
+            throw new Error('Password required to extract this archive');
           }
-          // Re-open with password
-          archive = await Archive.open(folder.archiveFile);
-          files = await archive.getFilesArray();
-          // Save password for future use
-          if (folder) {
-            const updatedFolder = { ...folder, archivePassword: password };
-            await updateFolder(updatedFolder);
-            setFolder(updatedFolder);
+          const archive2 = await Archive.open(folder.archiveFile);
+          files = await archive2.getFilesArray();
+          
+          // Save the password for extraction
+          if (files.length > 0) {
+            Object.defineProperty(folder.archiveFile, 'archivePassword', { value: newPassword, writable: true });
           }
-        } else {
-          throw err;
         }
       }
+      
+      console.log('Files found in archive:', files.length);
+      console.log('First few files:', files.slice(0, 5).map((f: any) => f.file.name));
       
       const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
       const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
@@ -760,28 +765,31 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
         return videoExtensions.some(ext => name.endsWith(ext)) || 
                imageExtensions.some(ext => name.endsWith(ext));
       });
+      
+      console.log('Media files found:', mediaFiles.length);
 
       let extractedCount = 0;
       const totalFiles = mediaFiles.length;
 
+      if (totalFiles === 0) {
+        alert('No media files found in the archive');
+        setIsExtracting(false);
+        return;
+      }
+
       // Extract each media file
       for (const item of mediaFiles) {
         try {
+          // Try extracting with password
           let extractedFile;
           try {
-            extractedFile = await item.file.extract(password);
+            extractedFile = await item.file.extract(password || undefined);
           } catch (extractErr: any) {
-            // If extract fails, might need password
+            // If password error and we didn't use a password, prompt and retry
             if (extractErr?.message?.toLowerCase().includes('password') && !password) {
-              password = prompt('Password required to extract files. Enter password:') || '';
-              if (!password) continue; // Skip this file
-              extractedFile = await item.file.extract(password);
-              // Save password for remaining files
-              if (folder) {
-                const updatedFolder = { ...folder, archivePassword: password };
-                await updateFolder(updatedFolder);
-                setFolder(updatedFolder);
-              }
+              const newPassword = prompt(`Password required for ${item.file.name}. Enter password:`) || '';
+              if (!newPassword) continue; // Skip this file
+              extractedFile = await item.file.extract(newPassword);
             } else {
               throw extractErr;
             }
@@ -818,16 +826,23 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
           if (extractedCount % 5 === 0) {
             console.log(`Extracted ${extractedCount}/${totalFiles} files...`);
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error(`Failed to extract ${item.file.name}:`, err);
         }
+      }
+
+      // Save password for future use if extraction was successful
+      if (extractedCount > 0 && password && folder) {
+        const updatedFolder = { ...folder, archivePassword: password };
+        await updateFolder(updatedFolder);
+        setFolder(updatedFolder);
       }
 
       await loadData();
       alert(`Successfully extracted ${extractedCount} files from archive!`);
     } catch (err) {
       console.error('Error extracting archive:', err);
-      alert('Failed to extract archive. It may be password protected or corrupted.');
+      alert('Failed to extract archive: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setIsExtracting(false);
     }

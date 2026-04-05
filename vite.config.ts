@@ -46,10 +46,58 @@ function copyLibArchivePlugin() {
   };
 }
 
+// Plugin to copy 7z-wasm files
+function copy7zWasmPlugin() {
+  return {
+    name: 'copy-7z-wasm',
+    configureServer(server: any) {
+      // Serve 7z-wasm files in dev mode - use earlier middleware position
+      server.middlewares.use('/7z-wasm/', (req: any, res: any, next: any) => {
+        // req.url is relative to mount point, so it will be like '/7zz.wasm'
+        const urlPath = (req.url || '').split('?')[0]; // Remove query params
+        const cleanPath = urlPath.startsWith('/') ? urlPath.slice(1) : urlPath;
+        const fullPath = path.join(__dirname, 'node_modules/7z-wasm', cleanPath);
+        
+        console.log('7z-wasm request:', req.url, '->', fullPath, 'exists:', fs.existsSync(fullPath));
+        
+        if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+          const content = fs.readFileSync(fullPath);
+          const ext = path.extname(fullPath);
+          const contentType = ext === '.wasm' ? 'application/wasm' : 
+                           ext === '.js' ? 'application/javascript' : 'text/plain';
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          res.end(content);
+        } else {
+          next();
+        }
+      });
+    },
+    writeBundle() {
+      const sourceDir = path.resolve(__dirname, 'node_modules/7z-wasm');
+      const destDir = path.resolve(__dirname, 'dist/7z-wasm');
+      
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+      
+      // Copy main JS file
+      const files = ['7zz.es6.js', '7zz.wasm'];
+      for (const file of files) {
+        const src = path.join(sourceDir, file);
+        if (fs.existsSync(src)) {
+          fs.copyFileSync(src, path.join(destDir, file));
+        }
+      }
+      console.log('Copied 7z-wasm files to dist');
+    }
+  };
+}
+
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    plugins: [react(), tailwindcss(), copyLibArchivePlugin()],
+    plugins: [react(), tailwindcss(), copyLibArchivePlugin(), copy7zWasmPlugin()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
