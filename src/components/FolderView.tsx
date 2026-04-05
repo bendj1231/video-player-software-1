@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, ChangeEvent, DragEvent, MouseEvent } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent, DragEvent, MouseEvent } from 'react';
 import { VideoZip, getVideosByFolder, addVideoZip, deleteVideoZip, deleteFolder, dbPromise, Folder, getSubfolders, addFolder, getFolderById, updateFolder } from '../lib/db';
 import { ArrowLeft, Upload, Play, Cloud, RefreshCw, Loader2, Download, ImageIcon, Trash2, FolderPlus, FolderOpen, ChevronRight, Folder as FolderIcon, MoreVertical, HardDrive, CloudDownload, Calendar, Clock } from 'lucide-react';
 import { CloudSyncModal } from './CloudSyncModal';
@@ -211,7 +211,7 @@ function VideoCard({ video, onPlay, onViewImage, index, isMuted, onDelete }: {
   );
 }
 
-export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkMode = true, onNavigateToFolder, isMuted, theme }: { folderId: string, onBack: () => void, onPlayVideo: (blob: Blob, videoId: string) => void, blurEnabled?: boolean, isDarkMode?: boolean, onNavigateToFolder?: (folderId: string) => void, isMuted?: boolean, theme?: 'dark' | 'light' | 'futuristic' | 'smokey' }) {
+export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkMode = true, onNavigateToFolder, isMuted }: { folderId: string, onBack: () => void, onPlayVideo: (blob: Blob, videoId: string) => void, blurEnabled?: boolean, isDarkMode?: boolean, onNavigateToFolder?: (folderId: string) => void, isMuted?: boolean }) {
   const [videos, setVideos] = useState<VideoWithPreview[]>([]);
   const [folderName, setFolderName] = useState('');
   const [folder, setFolder] = useState<Folder | null>(null);
@@ -913,7 +913,7 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
             {subfolders.map((subfolder) => (
               <button
                 key={subfolder.id}
-                onClick={() => handleNavigateToSubfolder(subfolder.id)}
+                onClick={() => onNavigateToFolder?.(subfolder.id)}
                 className="group shrink-0 flex items-center gap-2 px-4 py-2 bg-zinc-900/80 hover:bg-zinc-800/80 rounded-full text-sm text-white transition-all"
               >
                 <FolderOpen size={16} className="text-zinc-400" />

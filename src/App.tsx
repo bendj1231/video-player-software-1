@@ -5,7 +5,7 @@ import { GalleryView } from './components/GalleryView';
 import { FolderView } from './components/FolderView';
 import { VideoPlayerModal } from './components/VideoPlayerModal';
 import { MultiViewPlayer } from './components/MultiViewPlayer';
-import { ThemeSettingsModal, Theme } from './components/ThemeSettingsModal';
+import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { deleteVideoZip } from './lib/db';
 import { clearCache } from './lib/fileSystem';
 
