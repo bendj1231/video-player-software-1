@@ -3,7 +3,14 @@ let sevenZipModule: any = null;
 
 export async function init7zWasm() {
   if (!sevenZipModule) {
-    const { default: SevenZipFactory } = await import('7z-wasm');
+    // Dynamic import for browser environment only
+    if (typeof window === 'undefined') {
+      throw new Error('7z-wasm can only be loaded in browser environment');
+    }
+    
+    // Load the 7z-wasm factory function from the global scope or dynamic import
+    const SevenZipFactory = await load7zWasmFactory();
+    
     // Initialize with proper WASM file path
     sevenZipModule = await SevenZipFactory({
       locateFile: (path: string) => {
@@ -15,6 +22,23 @@ export async function init7zWasm() {
     });
   }
   return sevenZipModule;
+}
+
+// Dynamically load the 7z-wasm factory
+async function load7zWasmFactory(): Promise<any> {
+  // Try to load from the script tag first (for production)
+  if ((window as any).SevenZip) {
+    return (window as any).SevenZip;
+  }
+  
+  // Otherwise dynamic import
+  try {
+    const module = await import('7z-wasm');
+    return module.default;
+  } catch (err) {
+    console.error('Failed to load 7z-wasm module:', err);
+    throw new Error('7z-wasm module not available. Make sure /7z-wasm/7zz.es6.js is loaded.');
+  }
 }
 
 export async function list7zFiles(file: File, password?: string): Promise<string[]> {

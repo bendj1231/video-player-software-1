@@ -112,7 +112,12 @@ export default defineConfig(({mode}) => {
     build: {
       target: 'esnext',
       rollupOptions: {
-        // Don't externalize 7z-wasm - let it bundle but we'll handle WASM loading
+        external: ['7z-wasm'],
+        output: {
+          globals: {
+            '7z-wasm': 'SevenZip'
+          }
+        }
       }
     },
   };
