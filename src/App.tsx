@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, ChangeEvent, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent, useCallback, memo, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { HomeView } from './components/HomeView';
 import { GalleryView } from './components/GalleryView';
@@ -9,14 +9,28 @@ import { ThemeSettingsModal, Theme } from './components/ThemeSettingsModal';
 import { deleteVideoZip } from './lib/db';
 import { clearCache } from './lib/fileSystem';
 
+// iPad Pro 12.9" 1st gen detection for performance mode
+const isIPadPro129 = () => {
+  const ua = navigator.userAgent;
+  const isIPad = /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isLargeScreen = window.innerWidth >= 1024 && window.innerWidth <= 1366;
+  return isIPad && isLargeScreen;
+};
+
 export default function App() {
   const [currentView, setCurrentView] = useState('home');
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [playingVideo, setPlayingVideo] = useState<{ blob: Blob | null, id: string | null }>({ blob: null, id: null });
   const [privacyMode, setPrivacyMode] = useState<'none' | 'blur' | 'cover'>('none');
-  const [isMuted, setIsMuted] = useState(true); // Default to muted for privacy
+  const [isMuted, setIsMuted] = useState(true);
   const [theme, setThemeState] = useState<Theme>('dark');
   const [showSettings, setShowSettings] = useState(false);
+  const [isIPadPro, setIsIPadPro] = useState(false);
+
+  // Detect iPad Pro on mount
+  useEffect(() => {
+    setIsIPadPro(isIPadPro129());
+  }, []);
 
   // Debug theme changes
   const setTheme = useCallback((newTheme: Theme) => {
@@ -151,6 +165,7 @@ export default function App() {
         onSelectFolder={handleSelectFolder}
         theme={theme}
         setTheme={setTheme}
+        isIPadPro={isIPadPro}
       />
 
       <main className="flex-1 overflow-y-auto relative z-10">

@@ -24,7 +24,8 @@ export function Sidebar({
   onOpenSettings,
   onSelectFolder,
   theme,
-  setTheme
+  setTheme,
+  isIPadPro
 }: { 
   currentView: string, 
   setView: (v: string) => void,
@@ -40,7 +41,8 @@ export function Sidebar({
   onOpenSettings?: () => void,
   onSelectFolder?: (id: string) => void,
   theme?: 'dark' | 'light' | 'futuristic' | 'smokey',
-  setTheme?: (theme: 'dark' | 'light' | 'futuristic' | 'smokey') => void
+  setTheme?: (theme: 'dark' | 'light' | 'futuristic' | 'smokey') => void,
+  isIPadPro?: boolean
 }) {
   const [internalIsOpen, setInternalIsOpen] = useState(true);
   const isOpen = externalIsOpen ?? internalIsOpen;
@@ -87,13 +89,232 @@ export function Sidebar({
     onSelectFolder?.(folderId);
   };
 
-  return (
+  return isIPadPro ? (
+    // Simplified sidebar for iPad Pro with CSS-only transitions (no framer-motion)
+    <div
+      data-sidebar="true"
+      className={clsx(
+        "h-screen flex flex-col relative z-50 shrink-0",
+        "transition-all duration-75 ease-out",
+        isOpen ? "w-80" : "w-20",
+        theme === 'dark' && "bg-zinc-900/90 border-r border-white/10",
+        theme === 'light' && "bg-neutral-200/80 border-r border-black/5",
+        theme === 'futuristic' && "bg-slate-900/90 border-r border-cyan-500/20",
+        theme === 'smokey' && "bg-neutral-800/80 border-r border-white/20",
+        (!theme || theme === 'dark') && "bg-zinc-900/90 border-r border-white/10"
+      )}
+    >
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="absolute -right-4 top-10 rounded-full p-3 min-w-[44px] min-h-[44px] text-white z-50 active:scale-95 transition-transform bg-zinc-700/80"
+        aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
+      >
+        {isOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+      </button>
+
+      <div className={clsx(
+        "flex flex-col gap-3 mt-16 flex-1 overflow-y-auto overscroll-contain",
+        isOpen ? "p-4" : "p-3 items-center"
+      )}>
+        <SidebarItem id="home-btn" icon={<Home size={28} />} label="Home" isOpen={isOpen} active={currentView === 'home'} onClick={() => { console.log('Home clicked'); setView('home'); }} />
+        
+        <SidebarItem 
+          id="multiview-btn"
+          icon={<Grid3X3 size={28} />} 
+          label="Multi-View" 
+          isOpen={isOpen} 
+          active={currentView === 'multiview'} 
+          onClick={() => { console.log('MultiView clicked'); setView('multiview'); }} 
+        />
+        
+        <div className="relative">
+          <SidebarItem 
+            id="galleries-btn"
+            icon={<Folder size={28} />} 
+            label="Galleries" 
+            isOpen={isOpen} 
+            active={currentView === 'galleries'} 
+            onClick={() => {
+              console.log('Galleries clicked');
+              setView('galleries');
+              if (isOpen) {
+                setGalleriesExpanded(!galleriesExpanded);
+              }
+            }}
+            rightIcon={isOpen ? (
+              <ChevronDown 
+                size={20} 
+                className={clsx(
+                  "transition-transform duration-75",
+                  galleriesExpanded ? "rotate-180" : ""
+                )} 
+              />
+            ) : undefined}
+          />
+          
+          {isOpen && galleriesExpanded && folderTree.length > 0 && (
+            <div className="mt-2 ml-4 pl-4 border-l border-white/10 space-y-1">
+              {folderTree.map((folder) => (
+                <div key={folder.id}>
+                  <div className="flex items-center gap-2">
+                    {folder.subfolders.length > 0 && (
+                      <button
+                        onClick={(e) => toggleFolder(folder.id, e)}
+                        className={clsx(
+                          "p-2 min-w-[44px] min-h-[44px] rounded-lg transition-colors active:scale-95 flex items-center justify-center",
+                          theme === 'light' ? "hover:bg-black/10 active:bg-black/20" : "hover:bg-white/10 active:bg-white/20"
+                        )}
+                        aria-label={expandedFolders.has(folder.id) ? "Collapse folder" : "Expand folder"}
+                      >
+                        <ChevronDown 
+                          size={14} 
+                          className={clsx(
+                            "transition-transform duration-75",
+                            theme === 'light' ? "text-zinc-500" : "text-zinc-400",
+                            expandedFolders.has(folder.id) ? "rotate-180" : ""
+                          )} 
+                        />
+                      </button>
+                    )}
+                    {folder.subfolders.length === 0 && <div className="w-6" />}
+                    <button
+                      onClick={() => handleFolderClick(folder.id)}
+                      className={clsx(
+                        "flex-1 flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98]",
+                        folder.localFolderPath 
+                          ? theme === 'light' 
+                            ? "text-emerald-600 hover:bg-emerald-500/10 active:bg-emerald-500/20" 
+                            : "text-emerald-400 hover:bg-emerald-500/10 active:bg-emerald-500/20"
+                          : theme === 'light'
+                            ? "text-zinc-600 hover:bg-black/5 hover:text-zinc-900 active:bg-black/10"
+                            : "text-zinc-400 hover:bg-white/5 hover:text-white active:bg-white/10"
+                      )}
+                    >
+                      {folder.localFolderPath ? (
+                        <FolderOpen size={16} />
+                      ) : (
+                        <Folder size={16} />
+                      )}
+                      <span className="text-sm truncate">{folder.name}</span>
+                      {folder.localFolderPath && (
+                        <span className={clsx(
+                          "text-[10px] ml-auto",
+                          theme === 'light' ? "text-emerald-600/70" : "text-emerald-500/70"
+                        )}>synced</span>
+                      )}
+                    </button>
+                  </div>
+                  
+                  {expandedFolders.has(folder.id) && folder.subfolders.length > 0 && (
+                    <div className="ml-6 pl-4 border-l border-white/10 space-y-1 mt-1">
+                      {folder.subfolders.map((subfolder) => (
+                        <button
+                          key={subfolder.id}
+                          onClick={() => handleFolderClick(subfolder.id)}
+                          className={clsx(
+                            "w-full flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98]",
+                            subfolder.localFolderPath 
+                              ? theme === 'light'
+                                ? "text-emerald-600 hover:bg-emerald-500/10 active:bg-emerald-500/20"
+                                : "text-emerald-400 hover:bg-emerald-500/10 active:bg-emerald-500/20"
+                              : theme === 'light'
+                                ? "text-zinc-500 hover:bg-black/5 hover:text-zinc-700 active:bg-black/10"
+                                : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300 active:bg-white/10"
+                          )}
+                        >
+                          <Folder size={14} />
+                          <span className="text-sm truncate">{subfolder.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {isOpen && galleriesExpanded && folderTree.length === 0 && (
+            <div className={clsx(
+              "mt-2 ml-4 pl-4 text-sm",
+              theme === 'light' ? "text-zinc-500" : "text-zinc-500"
+            )}>
+              No galleries yet
+            </div>
+          )}
+        </div>
+        
+        <div className="flex-1"></div>
+        
+        <SidebarItem 
+          icon={theme === 'dark' ? <Monitor size={28} /> : theme === 'light' ? <Sun size={28} /> : theme === 'futuristic' ? <Cloud size={28} /> : <CloudFog size={28} />} 
+          label={theme === 'dark' ? 'Midnight' : theme === 'light' ? 'Daylight' : theme === 'futuristic' ? 'Cyber Blue' : 'Smokey Glass'} 
+          isOpen={isOpen} 
+          active={false}
+          onClick={(e) => {
+            e.stopPropagation();
+            console.log('Theme toggle clicked, current theme:', theme);
+            const themes: ('dark' | 'light' | 'futuristic' | 'smokey')[] = ['dark', 'light', 'futuristic', 'smokey'];
+            const currentIndex = themes.indexOf(theme || 'dark');
+            const nextTheme = themes[(currentIndex + 1) % themes.length];
+            console.log('Switching to theme:', nextTheme);
+            setTheme?.(nextTheme);
+          }} 
+        />
+        
+        <SidebarItem 
+          icon={<Settings size={28} />} 
+          label="Settings" 
+          isOpen={isOpen} 
+          active={false}
+          onClick={() => onOpenSettings?.()} 
+        />
+        
+        <SidebarItem 
+          icon={privacyMode === 'blur' ? <EyeOff size={28} /> : privacyMode === 'cover' ? <ImageIcon size={28} /> : <Eye size={28} />} 
+          label={privacyMode === 'blur' ? "Privacy: Blur" : privacyMode === 'cover' ? "Privacy: Cover" : "Privacy Off"} 
+          isOpen={isOpen} 
+          active={privacyMode !== 'none'}
+          activeColor="amber"
+          onClick={() => {
+            if (setPrivacyMode) {
+              const modes: ('none' | 'blur' | 'cover')[] = ['none', 'blur', 'cover'];
+              const currentIndex = modes.indexOf(privacyMode || 'none');
+              const nextMode = modes[(currentIndex + 1) % modes.length];
+              setPrivacyMode(nextMode);
+            }
+          }} 
+        />
+        
+        <SidebarItem 
+          icon={isMuted ? <VolumeX size={28} /> : <Volume2 size={28} />} 
+          label={isMuted ? "Muted" : "Unmuted"} 
+          isOpen={isOpen} 
+          active={isMuted}
+          activeColor="amber"
+          onClick={() => setIsMuted(!isMuted)} 
+        />
+        
+        <SidebarItem 
+          icon={<Trash2 size={28} />} 
+          label="Delete All Gallery" 
+          isOpen={isOpen} 
+          active={false}
+          onClick={() => {
+            if (confirm("Delete all galleries? This will remove all folders and their videos from the app.")) {
+              onClearCache?.();
+            }
+          }} 
+        />
+      </div>
+    </div>
+  ) : (
+    // Desktop sidebar with framer-motion animations
     <motion.div
       initial={false}
       animate={{ width: isOpen ? 320 : 80 }}
       data-sidebar="true"
       className={clsx(
-        "h-screen flex flex-col relative z-50 transition-all duration-500 shrink-0 backdrop-blur-xl",
+        "h-screen flex flex-col relative z-50 shrink-0 backdrop-blur-xl",
         theme === 'dark' && "bg-zinc-900/80 border-r border-white/10",
         theme === 'light' && "bg-neutral-200/70 border-r border-black/5",
         theme === 'futuristic' && "bg-slate-900/80 border-r border-cyan-500/20",
