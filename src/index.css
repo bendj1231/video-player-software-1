@@ -133,6 +133,31 @@
     color: white !important;
   }
   
+  /* Sidebar text visibility - ensure high contrast on iPad */
+  [data-sidebar="true"],
+  [data-sidebar="true"] *,
+  .sidebar,
+  .sidebar *,
+  nav,
+  nav * {
+    color: white !important;
+    background-color: #020202 !important;
+  }
+  
+  /* Override any white backgrounds that might appear */
+  .bg-white, .bg-neutral-100, .bg-gray-100 {
+    background-color: #020202 !important;
+  }
+  
+  /* Ensure all text is white */
+  .text-zinc-400, .text-zinc-500, .text-zinc-600 {
+    color: rgba(255, 255, 255, 0.7) !important;
+  }
+  
+  .text-black, .text-zinc-900, .text-neutral-900 {
+    color: white !important;
+  }
+  
   /* Ensure videos are always visible and rendered */
   video, .video-card, video[src] {
     content-visibility: visible !important;
@@ -249,6 +274,29 @@
   /* Force dark mode in portrait */
   #root, main, body, html {
     background-color: #020202 !important;
+    color: white !important;
+  }
+  
+  /* Sidebar text visibility in portrait */
+  [data-sidebar="true"],
+  [data-sidebar="true"] *,
+  nav,
+  nav * {
+    color: white !important;
+    background-color: #020202 !important;
+  }
+  
+  /* Override any white backgrounds */
+  .bg-white, .bg-neutral-100, .bg-gray-100 {
+    background-color: #020202 !important;
+  }
+  
+  /* Ensure all text is white */
+  .text-zinc-400, .text-zinc-500, .text-zinc-600 {
+    color: rgba(255, 255, 255, 0.7) !important;
+  }
+  
+  .text-black, .text-zinc-900, .text-neutral-900 {
     color: white !important;
   }
   

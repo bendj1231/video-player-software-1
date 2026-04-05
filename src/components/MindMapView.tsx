@@ -40,6 +40,9 @@ export function MindMapView() {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [showHelp, setShowHelp] = useState(true);
+  const [availableFolders, setAvailableFolders] = useState<FolderType[]>([]);
+  const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
+  const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -53,6 +56,9 @@ export function MindMapView() {
     for (const folder of allFolders) {
       allVideos[folder.id] = await getVideosByFolder(folder.id);
     }
+
+    // Set available folders (those not in hierarchy yet - for drag and drop)
+    setAvailableFolders(allFolders);
 
     // Build hierarchical structure with top-down layout (org chart style)
     const buildTree = (parentId: string | null, level: number, startX: number, startY: number): MindMapNode[] => {
@@ -85,8 +91,9 @@ export function MindMapView() {
       return nodes;
     };
 
-    // Start with root at center top
-    const centerX = typeof window !== 'undefined' ? window.innerWidth / 2 : 600;
+    // Get actual container width for centering (accounting for side panel)
+    const containerWidth = containerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth - 320 - 288 : 800);
+    const centerX = containerWidth / 2;
     const tree = buildTree(null, 0, centerX, 80);
 
     // Flatten tree into map
@@ -216,7 +223,30 @@ export function MindMapView() {
     if (parentForNewNode) {
       const parentNode = nodes.get(parentForNewNode);
       if (parentNode) {
-        const parentHandle = await getStoredDirectoryHandle(parentForNewNode);
+        // Try to get parent's directory handle
+        let parentHandle = await getStoredDirectoryHandle(parentForNewNode);
+        
+        // If no handle found but parent has localFolderPath, try to request access
+        if (!parentHandle && parentNode.localFolderPath) {
+          const { handle, error } = await requestLocalFolderAccess();
+          if (handle) {
+            // Navigate to the parent folder in the hierarchy
+            const pathParts = parentNode.localFolderPath.split('/');
+            parentHandle = handle;
+            for (const part of pathParts.slice(1)) {
+              try {
+                parentHandle = await parentHandle.getDirectoryHandle(part, { create: false });
+              } catch {
+                parentHandle = await createFolderInDirectory(parentHandle, part);
+              }
+            }
+            // Store the recovered handle
+            if (parentHandle) {
+              await storeDirectoryHandle(parentForNewNode, parentHandle);
+            }
+          }
+        }
+        
         if (parentHandle) {
           const newFolderHandle = await createFolderInDirectory(parentHandle, newFolder.name);
           if (newFolderHandle) {
@@ -243,7 +273,9 @@ export function MindMapView() {
     const parentNode = parentForNewNode ? nodes.get(parentForNewNode) : null;
 
     // Position new node below parent (top-down layout)
-    const centerX = typeof window !== 'undefined' ? window.innerWidth / 2 : 600;
+    // Use container center for root, parent's x for children
+    const containerWidth = containerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth - 320 : 800);
+    const centerX = containerWidth / 2;
     const newNode: MindMapNode = {
       ...newFolder,
       x: parentNode ? parentNode.x : centerX, // Center if root, below parent if child
@@ -255,18 +287,38 @@ export function MindMapView() {
 
     setNodes(prev => {
       const newNodes = new Map<string, MindMapNode>(prev);
-      newNodes.set(newFolder.id, newNode);
-
-      // If subfolder, update parent's children array
+      
+      // If subfolder, calculate proper spacing with siblings
       if (parentForNewNode) {
         const parentNode = newNodes.get(parentForNewNode);
         if (parentNode) {
+          // Get all children including the new one - use references from nodes Map
+          const existingChildren = parentNode.children.map(c => newNodes.get(c.id)).filter(Boolean) as MindMapNode[];
+          const allChildren = [...existingChildren, newNode];
+          const totalWidth = allChildren.length * SIBLING_SPACING;
+          const startOffset = parentNode.x - totalWidth / 2 + SIBLING_SPACING / 2;
+          
+          // Reposition all children evenly - preserving their children arrays
+          allChildren.forEach((child, index) => {
+            const newX = allChildren.length === 1 ? parentNode.x : startOffset + index * SIBLING_SPACING;
+            const updatedChild: MindMapNode = {
+              ...child,
+              x: newX,
+              y: parentNode.y + LEVEL_SPACING
+            };
+            newNodes.set(child.id, updatedChild);
+          });
+          
+          // Update parent with new children array (use updated references)
           const updatedParent: MindMapNode = {
             ...parentNode,
-            children: [...parentNode.children, newNode]
+            children: allChildren.map(c => newNodes.get(c.id) || c)
           };
           newNodes.set(parentForNewNode, updatedParent);
         }
+      } else {
+        // Root node - just add it
+        newNodes.set(newFolder.id, newNode);
       }
 
       return newNodes;
@@ -276,6 +328,40 @@ export function MindMapView() {
     setShowCreateModal(false);
     setNewFolderName('');
     setParentForNewNode(null);
+  };
+
+  // Handle folder drop from side panel onto a node
+  const handleDropFolder = async (folderId: string, targetParentId: string) => {
+    const folderToMove = availableFolders.find(f => f.id === folderId);
+    const targetParent = nodes.get(targetParentId);
+    
+    if (!folderToMove || !targetParent) return;
+    
+    // Prevent dropping onto itself or its own descendants
+    if (folderId === targetParentId) return;
+    
+    // Check if target is a descendant of the folder being moved
+    const isDescendant = (parentId: string, childId: string): boolean => {
+      const parent = nodes.get(parentId);
+      if (!parent) return false;
+      if (parent.children.some(c => c.id === childId)) return true;
+      return parent.children.some(c => isDescendant(c.id, childId));
+    };
+    
+    if (isDescendant(folderId, targetParentId)) return;
+
+    // Update folder's parent in database
+    const updatedFolder: FolderType = {
+      ...folderToMove,
+      parentId: targetParentId
+    };
+    await addFolder(updatedFolder);
+
+    // Reload the tree to reflect changes
+    await loadData();
+    
+    setDraggedFolderId(null);
+    setDragOverNodeId(null);
   };
 
   // Delete node
@@ -364,279 +450,340 @@ export function MindMapView() {
   });
 
   return (
-    <div className="w-full h-screen bg-black overflow-hidden relative">
-      {/* Help overlay */}
-      <AnimatePresence>
-        {showHelp && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute top-4 left-4 z-50 bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 max-w-sm"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-white font-semibold">MindMap Controls</h3>
-              <button onClick={() => setShowHelp(false)} className="text-zinc-400 hover:text-white">
-                <X size={16} />
-              </button>
-            </div>
-            <ul className="text-sm text-zinc-400 space-y-1">
-              <li>• Drag nodes to rearrange</li>
-              <li>• Shift+drag to pan canvas</li>
-              <li>• Ctrl+scroll to zoom</li>
-              <li>• Click + to add child folder</li>
-              <li>• Folders auto-create locally</li>
-            </ul>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Toolbar */}
-      <div className="absolute top-4 right-4 z-50 flex gap-2">
-        <button
-          onClick={() => {
-            setParentForNewNode(null);
-            setShowCreateModal(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-colors"
-        >
-          <Plus size={18} />
-          New Root Folder
-        </button>
-        <button
-          onClick={() => setShowHelp(true)}
-          className="p-2 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 rounded-xl transition-colors"
-        >
-          ?
-        </button>
-        <div className="flex items-center gap-2 px-3 bg-zinc-800/80 rounded-xl text-zinc-400 text-sm">
-          <span>{Math.round(scale * 100)}%</span>
+    <div className="w-full h-screen bg-black overflow-hidden relative flex">
+      {/* Side Panel - Available Folders */}
+      <div className="w-72 h-full bg-zinc-900/90 border-r border-white/10 flex flex-col shrink-0 z-20">
+        <div className="p-4 border-b border-white/10">
+          <h3 className="text-white font-semibold flex items-center gap-2">
+            <FolderOpen size={18} className="text-emerald-400" />
+            Available Folders
+          </h3>
+          <p className="text-zinc-500 text-xs mt-1">Drag folders to mindmap</p>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {availableFolders.length === 0 ? (
+            <p className="text-zinc-500 text-sm text-center py-8">No folders available</p>
+          ) : (
+            availableFolders.map((folder) => (
+              <div
+                key={folder.id}
+                draggable
+                onDragStart={(e) => {
+                  setDraggedFolderId(folder.id);
+                  e.dataTransfer.setData('folderId', folder.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragEnd={() => setDraggedFolderId(null)}
+                className={clsx(
+                  "p-3 rounded-xl border border-white/10 cursor-grab active:cursor-grabbing transition-all",
+                  "bg-zinc-800/50 hover:bg-zinc-700/50",
+                  draggedFolderId === folder.id && "opacity-50"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <Folder size={16} className={folder.localFolderPath ? "text-emerald-400" : "text-zinc-400"} />
+                  <span className="text-white text-sm truncate">{folder.name}</span>
+                </div>
+                {folder.localFolderPath && (
+                  <div className="text-emerald-500/60 text-[10px] mt-1 truncate">
+                    {folder.localFolderPath}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
 
-      {/* Canvas */}
-      <div
-        ref={containerRef}
-        className="w-full h-full cursor-grab active:cursor-grabbing"
-        onMouseDown={handleContainerMouseDown}
-        onWheel={handleWheel}
-      >
-        <svg
-          ref={svgRef}
-          className="absolute inset-0 w-full h-full pointer-events-none"
-          style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-            transformOrigin: '0 0'
-          }}
-        >
-          <defs>
-            <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
-              <polygon points="0 0, 10 3, 0 6" fill="rgba(255,255,255,0.3)" />
-            </marker>
-          </defs>
-          {visibleConnections.map((conn, i) => {
-            const from = nodes.get(conn.from);
-            const to = nodes.get(conn.to);
-            if (!from || !to) return null;
-
-            return (
-              <line
-                key={`${conn.from}-${conn.to}`}
-                x1={from.x + NODE_WIDTH / 2}
-                y1={from.y + NODE_HEIGHT}
-                x2={to.x + NODE_WIDTH / 2}
-                y2={to.y}
-                stroke="rgba(255,255,255,0.2)"
-                strokeWidth={2}
-                markerEnd="url(#arrowhead)"
-              />
-            );
-          })}
-        </svg>
-
-        {/* Nodes */}
-        <div
-          className="absolute inset-0"
-          style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-            transformOrigin: '0 0'
-          }}
-        >
-          {visibleNodes.map((node) => (
+      {/* Main Canvas */}
+      <div className="flex-1 h-full relative overflow-hidden">
+        {/* Help overlay */}
+        <AnimatePresence>
+          {showHelp && (
             <motion.div
-              key={node.id}
-              className={clsx(
-                "absolute rounded-2xl border backdrop-blur-md cursor-move select-none",
-                "bg-gradient-to-br shadow-lg",
-                getNodeColor(node),
-                selectedNode === node.id && "ring-2 ring-white/50 shadow-xl shadow-white/10"
-              )}
-              style={{
-                left: node.x,
-                top: node.y,
-                width: NODE_WIDTH,
-                minHeight: NODE_HEIGHT
-              }}
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute top-4 left-4 z-50 bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 max-w-sm"
             >
-              <div className="p-3">
-                {/* Header */}
-                <div className="flex items-start gap-2">
-                  <div className="mt-0.5">
-                    {node.localFolderPath ? (
-                      <FolderOpen size={18} className="text-emerald-400" />
-                    ) : (
-                      <Folder size={18} className="text-zinc-400" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    {editingNode === node.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
-                          className="w-full bg-black/50 border border-white/20 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-white/40"
-                          autoFocus
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <button onClick={(e) => { e.stopPropagation(); saveEdit(); }} className="p-1 text-emerald-400 hover:bg-emerald-500/20 rounded">
-                          <Check size={14} />
-                        </button>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-white font-semibold">MindMap Controls</h3>
+                <button onClick={() => setShowHelp(false)} className="text-zinc-400 hover:text-white">
+                  <X size={16} />
+                </button>
+              </div>
+              <ul className="text-sm text-zinc-400 space-y-1">
+                <li>• Drag nodes to rearrange</li>
+                <li>• Shift+drag to pan canvas</li>
+                <li>• Ctrl+scroll to zoom</li>
+                <li>• Drag folders from sidebar to add</li>
+                <li>• Folders auto-create locally</li>
+              </ul>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar */}
+        <div className="absolute top-4 right-4 z-50 flex gap-2">
+          <button
+            onClick={() => {
+              setParentForNewNode(null);
+              setShowCreateModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-colors"
+          >
+            <Plus size={18} />
+            New Root Folder
+          </button>
+          <button
+            onClick={() => setShowHelp(true)}
+            className="p-2 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 rounded-xl transition-colors"
+          >
+            ?
+          </button>
+          <div className="flex items-center gap-2 px-3 bg-zinc-800/80 rounded-xl text-zinc-400 text-sm">
+            <span>{Math.round(scale * 100)}%</span>
+          </div>
+        </div>
+
+        {/* Canvas */}
+        <div
+          ref={containerRef}
+          className="w-full h-full cursor-grab active:cursor-grabbing"
+          onMouseDown={handleContainerMouseDown}
+          onWheel={handleWheel}
+        >
+          <svg
+            ref={svgRef}
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+              transformOrigin: '0 0'
+            }}
+          >
+            <defs>
+              <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                <polygon points="0 0, 10 3, 0 6" fill="rgba(255,255,255,0.3)" />
+              </marker>
+            </defs>
+            {visibleConnections.map((conn, i) => {
+              const from = nodes.get(conn.from);
+              const to = nodes.get(conn.to);
+              if (!from || !to) return null;
+
+              return (
+                <line
+                  key={`${conn.from}-${conn.to}`}
+                  x1={from.x + NODE_WIDTH / 2}
+                  y1={from.y + NODE_HEIGHT}
+                  x2={to.x + NODE_WIDTH / 2}
+                  y2={to.y}
+                  stroke="rgba(255,255,255,0.2)"
+                  strokeWidth={2}
+                  markerEnd="url(#arrowhead)"
+                />
+              );
+            })}
+          </svg>
+
+          {/* Nodes */}
+          <div
+            className="absolute inset-0"
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+              transformOrigin: '0 0'
+            }}
+          >
+            {visibleNodes.map((node) => (
+              <motion.div
+                key={node.id}
+                className={clsx(
+                  "absolute rounded-2xl border backdrop-blur-md cursor-move select-none",
+                  "bg-gradient-to-br shadow-lg",
+                  getNodeColor(node),
+                  selectedNode === node.id && "ring-2 ring-white/50 shadow-xl shadow-white/10",
+                  dragOverNodeId === node.id && "ring-2 ring-emerald-400 shadow-lg shadow-emerald-400/20"
+                )}
+                style={{
+                  left: node.x,
+                  top: node.y,
+                  width: NODE_WIDTH,
+                  minHeight: NODE_HEIGHT
+                }}
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  setDragOverNodeId(node.id);
+                }}
+                onDragLeave={() => setDragOverNodeId(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const folderId = e.dataTransfer.getData('folderId');
+                  if (folderId) {
+                    handleDropFolder(folderId, node.id);
+                  }
+                }}
+              >
+                <div className="p-3">
+                  {/* Header */}
+                  <div className="flex items-start gap-2">
+                    <div className="mt-0.5">
+                      {node.localFolderPath ? (
+                        <FolderOpen size={18} className="text-emerald-400" />
+                      ) : (
+                        <Folder size={18} className="text-zinc-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {editingNode === node.id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
+                            className="w-full bg-black/50 border border-white/20 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-white/40"
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <button onClick={(e) => { e.stopPropagation(); saveEdit(); }} className="p-1 text-emerald-400 hover:bg-emerald-500/20 rounded">
+                            <Check size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <span
+                          className="text-white font-medium text-sm truncate block"
+                          onDoubleClick={() => startEditing(node)}
+                          title={node.name}
+                        >
+                          {node.name}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        {node.videos.length > 0 && (
+                          <span className="flex items-center gap-1 text-xs text-violet-300">
+                            <FileVideo size={10} />
+                            {node.videos.length}
+                          </span>
+                        )}
+                        {node.children.length > 0 && (
+                          <span className="text-xs text-zinc-500">
+                            {node.children.length} sub
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      <span
-                        className="text-white font-medium text-sm truncate block"
-                        onDoubleClick={() => startEditing(node)}
-                        title={node.name}
-                      >
-                        {node.name}
-                      </span>
-                    )}
-                    <div className="flex items-center gap-2 mt-1">
-                      {node.videos.length > 0 && (
-                        <span className="flex items-center gap-1 text-xs text-violet-300">
-                          <FileVideo size={10} />
-                          {node.videos.length}
-                        </span>
-                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-1">
                       {node.children.length > 0 && (
-                        <span className="text-xs text-zinc-500">
-                          {node.children.length} sub
-                        </span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleExpansion(node.id); }}
+                          className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                          title={node.isExpanded ? "Collapse" : "Expand"}
+                        >
+                          <Link2 size={14} className={node.isExpanded ? "" : "rotate-90"} />
+                        </button>
                       )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startEditing(node); }}
+                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                        title="Rename"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setParentForNewNode(node.id); setShowCreateModal(true); }}
+                        className="p-1.5 text-emerald-400 hover:bg-emerald-500/20 rounded-lg transition-colors"
+                        title="Add child folder"
+                      >
+                        <Plus size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteNode(node.id); }}
+                        className="p-1.5 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/10">
-                  <div className="flex items-center gap-1">
-                    {node.children.length > 0 && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleExpansion(node.id); }}
-                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                        title={node.isExpanded ? "Collapse" : "Expand"}
-                      >
-                        <Link2 size={14} className={node.isExpanded ? "" : "rotate-90"} />
-                      </button>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); startEditing(node); }}
-                      className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                      title="Rename"
-                    >
-                      <Edit2 size={14} />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setParentForNewNode(node.id); setShowCreateModal(true); }}
-                      className="p-1.5 text-emerald-400 hover:bg-emerald-500/20 rounded-lg transition-colors"
-                      title="Add child folder"
-                    >
-                      <Plus size={14} />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteNode(node.id); }}
-                      className="p-1.5 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Selection indicator */}
-              {selectedNode === node.id && (
-                <div className="absolute -inset-1 border-2 border-white/30 rounded-2xl pointer-events-none" />
-              )}
-            </motion.div>
-          ))}
+                {/* Selection indicator */}
+                {selectedNode === node.id && (
+                  <div className="absolute -inset-1 border-2 border-white/30 rounded-2xl pointer-events-none" />
+                )}
+              </motion.div>
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Create Folder Modal */}
-      <AnimatePresence>
-        {showCreateModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-            onClick={() => setShowCreateModal(false)}
-          >
+        {/* Create Folder Modal */}
+        <AnimatePresence>
+          {showCreateModal && (
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-zinc-900 border border-white/10 rounded-2xl p-6 w-96"
-              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+              onClick={() => setShowCreateModal(false)}
             >
-              <h3 className="text-white font-semibold text-lg mb-4">
-                {parentForNewNode ? 'Create Subfolder' : 'Create Root Folder'}
-              </h3>
-              <p className="text-zinc-400 text-sm mb-4">
-                {parentForNewNode
-                  ? 'This will create a local folder on disk as well.'
-                  : 'Select a parent directory to create this folder.'}
-              </p>
-              <input
-                type="text"
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateNode()}
-                placeholder="Folder name..."
-                className="w-full bg-black/50 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-white/40 mb-4"
-                autoFocus
-              />
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateNode}
-                  disabled={!newFolderName.trim()}
-                  className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
-                >
-                  Create
-                </button>
-              </div>
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-zinc-900 border border-white/10 rounded-2xl p-6 w-96"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="text-white font-semibold text-lg mb-4">
+                  {parentForNewNode ? 'Create Subfolder' : 'Create Root Folder'}
+                </h3>
+                <p className="text-zinc-400 text-sm mb-4">
+                  {parentForNewNode
+                    ? 'This will create a local folder on disk as well.'
+                    : 'Select a parent directory to create this folder.'}
+                </p>
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreateNode()}
+                  placeholder="Folder name..."
+                  className="w-full bg-black/50 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-white/40 mb-4"
+                  autoFocus
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowCreateModal(false)}
+                    className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreateNode}
+                    disabled={!newFolderName.trim()}
+                    className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
+                  >
+                    Create
+                  </button>
+                </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>
 
-      {/* Stats overlay */}
-      <div className="absolute bottom-4 left-4 z-50 bg-zinc-900/80 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-2 text-sm text-zinc-400">
-        {nodes.size} folders • {Array.from(nodes.values()).reduce((acc: number, n: MindMapNode) => acc + n.videos.length, 0)} videos
+        {/* Stats overlay */}
+        <div className="absolute bottom-4 left-4 z-50 bg-zinc-900/80 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-2 text-sm text-zinc-400">
+          {nodes.size} folders • {Array.from(nodes.values()).reduce((acc: number, n: MindMapNode) => acc + n.videos.length, 0)} videos
+        </div>
       </div>
     </div>
   );
