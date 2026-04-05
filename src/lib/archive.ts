@@ -91,28 +91,53 @@ export class VirtualArchiveExplorer {
 
   private async load7z(): Promise<void> {
     try {
+      console.log('Loading 7z archive...');
       const factory = await getSevenZipFactory();
+      console.log('7z factory loaded');
+      
       if (!SevenZipModule) {
+        console.log('Initializing SevenZipModule...');
         SevenZipModule = await factory();
+        console.log('SevenZipModule initialized');
       }
+      
       this.sevenZip = SevenZipModule;
-      this.sevenZip.FS.writeFile('/archive.7z', new Uint8Array(this.archiveData!));
+      
+      // Write archive to virtual filesystem
+      console.log('Writing archive to virtual FS...');
+      try {
+        this.sevenZip.FS.writeFile('/archive.7z', new Uint8Array(this.archiveData!));
+        console.log('Archive written to FS successfully');
+      } catch (fsError) {
+        console.error('FS write error:', fsError);
+        throw new Error('Failed to write archive to virtual filesystem');
+      }
       
       // Try to list contents to check if encrypted
+      console.log('Testing archive listing...');
       try {
-        this.sevenZip.callMain(['l', '/archive.7z']);
+        const result = this.sevenZip.callMain(['l', '/archive.7z']);
+        console.log('Archive listing result:', result);
+        
+        if (result !== 0) {
+          throw new Error(`7z list command failed with code ${result}`);
+        }
+        
         this.isEncrypted = false;
         this.hasPassword = false;
-      } catch {
+        console.log('7z archive loaded successfully');
+      } catch (listError) {
+        console.log('Archive may be encrypted or corrupted:', listError);
         this.isEncrypted = true;
         this.hasPassword = true;
         throw new Error('7z archive is password protected');
       }
     } catch (error) {
+      console.error('load7z error:', error);
       if (error instanceof Error && error.message.includes('password')) {
         throw error;
       }
-      throw new Error('Failed to load 7z archive');
+      throw new Error(`Failed to load 7z archive: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
