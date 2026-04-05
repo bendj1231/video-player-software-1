@@ -110,8 +110,10 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
         
         await Promise.all(batch.map(async (fileInfo) => {
           try {
+            console.log(`Extracting file: ${fileInfo.name}`);
             // Extract file as blob using archive explorer (with password if needed)
             const blob = await archiveExplorer.extractFile(fileInfo.name);
+            console.log(`Extracted blob size: ${blob.size}`);
             
             // Determine file type
             const fileName = fileInfo.name.toLowerCase();
@@ -154,6 +156,7 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
             processedCount++;
           } catch (err) {
             console.error(`Error extracting file ${fileInfo.name}:`, err);
+            // Don't throw, continue with other files
           }
         }));
 

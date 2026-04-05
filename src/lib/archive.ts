@@ -87,21 +87,32 @@ export class VirtualArchiveExplorer {
       await initLibArchive();
       this.libArchive = await Archive.open(file);
       
-      // Check if password is needed
+      // Check if password is needed by trying to list files
       try {
-        await this.libArchive.getFilesObject();
+        const files = await this.libArchive.getFilesArray();
+        // If we successfully got files, no password needed
         this.isEncrypted = false;
         this.hasPassword = false;
-      } catch (err) {
-        this.isEncrypted = true;
-        this.hasPassword = true;
-        throw new Error(`${this.archiveFormat} archive is password protected`);
+        console.log('Archive loaded successfully, files found:', files.length);
+      } catch (err: any) {
+        console.log('getFilesArray failed:', err?.message || err);
+        // Check if error is specifically about password
+        const errorMsg = (err?.message || '').toLowerCase();
+        if (errorMsg.includes('password') || errorMsg.includes('encrypted') || errorMsg.includes('passphrase')) {
+          this.isEncrypted = true;
+          this.hasPassword = true;
+          throw new Error(`${this.archiveFormat} archive is password protected`);
+        } else {
+          // Some other error, re-throw it
+          throw err;
+        }
       }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('password')) {
+    } catch (error: any) {
+      console.error('loadLibArchive error:', error);
+      if (error?.message?.includes('password')) {
         throw error;
       }
-      throw new Error(`Failed to load ${this.archiveFormat} archive: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Failed to load ${this.archiveFormat} archive: ${error?.message || 'Unknown error'}`);
     }
   }
 
