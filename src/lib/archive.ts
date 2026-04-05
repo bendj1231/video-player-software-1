@@ -1,6 +1,31 @@
 import JSZip from 'jszip';
 import { Archive } from 'libarchive.js';
 
+// iPad Pro 2015 memory limit detection
+const isIPadPro2015 = () => {
+  const ua = navigator.userAgent;
+  const isIPad = /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isLargeScreen = window.innerWidth >= 1024 && window.innerWidth <= 1366;
+  return isIPad && isLargeScreen;
+};
+
+// Force garbage collection hint for iPad
+const forceMemoryCleanup = () => {
+  if (isIPadPro2015()) {
+    // Clear any pending animations/timers
+    const highest = setTimeout(() => {
+      for (let i = 0; i < (highest as unknown as number); i++) {
+        clearTimeout(i);
+      }
+    }, 0);
+    
+    // Suggest GC (works in some iOS WebKit versions)
+    if ('gc' in window) {
+      (window as any).gc();
+    }
+  }
+};
+
 let libArchiveInitialized = false;
 
 async function initLibArchive() {
@@ -222,7 +247,12 @@ export class VirtualArchiveExplorer {
 
   async extractFile(fileName: string): Promise<Blob> {
     if (this.libArchive) {
-      return this.extractFileLibArchive(fileName);
+      const result = await this.extractFileLibArchive(fileName);
+      // Force memory cleanup after extraction on iPad
+      if (isIPadPro2015()) {
+        forceMemoryCleanup();
+      }
+      return result;
     }
     
     if (!this.zip) {
@@ -235,8 +265,15 @@ export class VirtualArchiveExplorer {
     }
 
     // Extract file as blob
-    const data = await zipEntry.async('uint8array') as Uint8Array;
-    return new Blob([data]);
+    const data = await zipEntry.async('uint8array');
+    const blob = new Blob([new Uint8Array(data)]);
+    
+    // Force memory cleanup after extraction on iPad
+    if (isIPadPro2015()) {
+      forceMemoryCleanup();
+    }
+    
+    return blob;
   }
 
   private async extractFileLibArchive(fileName: string): Promise<Blob> {
