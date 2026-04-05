@@ -111,6 +111,14 @@ export default defineConfig(({mode}) => {
     },
     build: {
       target: 'esnext',
+      rollupOptions: {
+        external: ['7z-wasm'],
+        output: {
+          paths: {
+            '7z-wasm': '/7z-wasm/7zz.es6.js'
+          }
+        }
+      }
     },
   };
 });
