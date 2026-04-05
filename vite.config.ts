@@ -77,19 +77,32 @@ function copy7zWasmPlugin() {
       const sourceDir = path.resolve(__dirname, 'node_modules/7z-wasm');
       const destDir = path.resolve(__dirname, 'dist/7z-wasm');
       
+      console.log('Copying 7z-wasm files...');
+      console.log('Source dir:', sourceDir);
+      console.log('Dest dir:', destDir);
+      
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
+        console.log('Created dest dir');
       }
       
       // Copy main JS file
       const files = ['7zz.es6.js', '7zz.wasm'];
       for (const file of files) {
         const src = path.join(sourceDir, file);
+        const dest = path.join(destDir, file);
+        console.log(`Checking ${file}: exists=${fs.existsSync(src)}, src=${src}`);
         if (fs.existsSync(src)) {
-          fs.copyFileSync(src, path.join(destDir, file));
+          fs.copyFileSync(src, dest);
+          console.log(`Copied ${file} to ${dest}`);
+        } else {
+          console.error(`Source file not found: ${src}`);
         }
       }
-      console.log('Copied 7z-wasm files to dist');
+      
+      // Verify files were copied
+      const copiedFiles = fs.readdirSync(destDir);
+      console.log('Files in dest dir:', copiedFiles);
     }
   };
 }
