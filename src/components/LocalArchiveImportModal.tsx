@@ -37,14 +37,17 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
     setPassword('');
 
     // Try to load the archive to check if it needs a password
+    console.log('Loading archive:', file.name);
     const explorer = new VirtualArchiveExplorer();
+    setArchiveExplorer(explorer); // Set it early so button isn't stuck disabled
+    
     try {
       await explorer.loadArchive(file);
-      setArchiveExplorer(explorer);
+      console.log('Archive loaded successfully');
     } catch (err) {
+      console.error('Archive load error:', err);
       if (err instanceof Error && err.message.includes('password')) {
         setNeedsPassword(true);
-        setArchiveExplorer(explorer);
       } else {
         setError(err instanceof Error ? err.message : 'Failed to load archive');
       }
@@ -52,12 +55,16 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
   };
 
   const handleImport = async () => {
-    if (!selectedFile || !archiveExplorer) return;
+    if (!selectedFile || !archiveExplorer) {
+      console.log('Import blocked:', { selectedFile, archiveExplorer });
+      return;
+    }
     if (needsPassword) {
       setError('Please unlock the archive with password first');
       return;
     }
 
+    console.log('Starting import process...');
     try {
       setIsUploading(true);
       setError('');
@@ -68,8 +75,10 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
       const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
 
       // Get all files from archive explorer
+      console.log('Listing archive files...');
       setExtractionProgress('Scanning for media files...');
       const archiveFiles = await archiveExplorer.listFiles();
+      console.log('Found archive files:', archiveFiles.length);
       
       // Filter media files
       const mediaFiles = archiveFiles.filter(file => {
@@ -78,6 +87,7 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
         const isImage = imageExtensions.some(ext => fileName.endsWith(ext));
         return isVideo || isImage;
       });
+      console.log('Media files found:', mediaFiles.length);
 
       if (mediaFiles.length === 0) {
         setError('No media files (videos or images) found in the archive');
@@ -98,6 +108,7 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
       };
 
       await addFolder(newFolder);
+      console.log('Created folder:', newFolder.id);
 
       setExtractionProgress(`Extracting ${mediaFiles.length} media files...`);
 

@@ -3,7 +3,8 @@ import { VideoZip, getVideosByFolder, addVideoZip, deleteVideoZip, deleteFolder,
 import { ArrowLeft, Upload, Play, Cloud, RefreshCw, Loader2, Download, ImageIcon, Trash2, FolderPlus, FolderOpen, ChevronRight, Folder as FolderIcon, MoreVertical, HardDrive, CloudDownload, Calendar, Clock } from 'lucide-react';
 import { CloudSyncModal } from './CloudSyncModal';
 import { MegaImportModal } from './MegaImportModal';
-import { getVideoPreview } from '../lib/zip';
+import { Archive } from 'libarchive.js';
+import { VirtualArchiveExplorer } from '../lib/archive';
 import { initializeLocalFolder, saveFileToDirectory, getStoredDirectoryHandle } from '../lib/fileSystem';
 import { extractExifData, getBestDate, groupPhotosByDate } from '../lib/exif';
 
@@ -225,6 +226,7 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
   const [isSyncing, setIsSyncing] = useState(false);
   const [groupedPhotos, setGroupedPhotos] = useState<Map<string, VideoWithPreview[]>>(new Map());
   const [isLoadingDates, setIsLoadingDates] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const folderContentsInputRef = useRef<HTMLInputElement>(null);
@@ -698,9 +700,136 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     }
   };
 
-  const handleNavigateToSubfolder = (subfolderId: string) => {
-    if (onNavigateToFolder) {
-      onNavigateToFolder(subfolderId);
+  const handleExtractArchive = async () => {
+    if (!folder?.isArchive || !folder.archiveFile) {
+      alert('This is not an archive folder');
+      return;
+    }
+
+    const confirmExtract = confirm(`Extract all media files from ${folder.name}? This may take a while for large archives.`);
+    if (!confirmExtract) return;
+
+    setIsExtracting(true);
+    let password = folder.archivePassword || '';
+    
+    try {
+      // Initialize libarchive
+      await Archive.init({
+        workerUrl: '/libarchive.js/worker-bundle.js'
+      });
+
+      // Open the archive
+      let archive = await Archive.open(folder.archiveFile);
+      
+      // Try to get files - if it fails, might need password
+      let files: any[] = [];
+      try {
+        files = await archive.getFilesArray();
+      } catch (err: any) {
+        // Check if password is needed
+        if (err?.message?.toLowerCase().includes('password') || 
+            err?.message?.toLowerCase().includes('encrypted') ||
+            err?.toString()?.toLowerCase().includes('password')) {
+          // Prompt for password
+          password = prompt('This archive is password protected. Enter password:') || '';
+          if (!password) {
+            alert('Password required to extract archive');
+            setIsExtracting(false);
+            return;
+          }
+          // Re-open with password
+          archive = await Archive.open(folder.archiveFile);
+          files = await archive.getFilesArray();
+          // Save password for future use
+          if (folder) {
+            const updatedFolder = { ...folder, archivePassword: password };
+            await updateFolder(updatedFolder);
+            setFolder(updatedFolder);
+          }
+        } else {
+          throw err;
+        }
+      }
+      
+      const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
+      
+      // Filter media files
+      const mediaFiles = files.filter((item: any) => {
+        const name = item.file.name.toLowerCase();
+        return videoExtensions.some(ext => name.endsWith(ext)) || 
+               imageExtensions.some(ext => name.endsWith(ext));
+      });
+
+      let extractedCount = 0;
+      const totalFiles = mediaFiles.length;
+
+      // Extract each media file
+      for (const item of mediaFiles) {
+        try {
+          let extractedFile;
+          try {
+            extractedFile = await item.file.extract(password);
+          } catch (extractErr: any) {
+            // If extract fails, might need password
+            if (extractErr?.message?.toLowerCase().includes('password') && !password) {
+              password = prompt('Password required to extract files. Enter password:') || '';
+              if (!password) continue; // Skip this file
+              extractedFile = await item.file.extract(password);
+              // Save password for remaining files
+              if (folder) {
+                const updatedFolder = { ...folder, archivePassword: password };
+                await updateFolder(updatedFolder);
+                setFolder(updatedFolder);
+              }
+            } else {
+              throw extractErr;
+            }
+          }
+          
+          // Determine mime type
+          const fileName = item.file.name.toLowerCase();
+          let mimeType = 'application/octet-stream';
+          if (fileName.endsWith('.mp4')) mimeType = 'video/mp4';
+          else if (fileName.endsWith('.webm')) mimeType = 'video/webm';
+          else if (fileName.endsWith('.mov')) mimeType = 'video/quicktime';
+          else if (fileName.endsWith('.mkv')) mimeType = 'video/x-matroska';
+          else if (fileName.endsWith('.avi')) mimeType = 'video/x-msvideo';
+          else if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')) mimeType = 'image/jpeg';
+          else if (fileName.endsWith('.png')) mimeType = 'image/png';
+          else if (fileName.endsWith('.gif')) mimeType = 'image/gif';
+          else if (fileName.endsWith('.webp')) mimeType = 'image/webp';
+          
+          // Create new video entry
+          const newVideo: VideoZip = {
+            id: crypto.randomUUID(),
+            folderId,
+            name: item.file.name.replace(/\.(mp4|webm|mov|mkv|avi|m4v|mcgi|m2ts|ts|m2t|mts|m4p|3gp|3g2|flv|f4v|wmv|asf|ogv|ogg|ogm|divx|xvid|dv|qt|mqv|hevc|h265|h264|jpg|jpeg|png|gif|webp|bmp|tiff|tif|svg|ico|raw|cr2|nef|arw|dng)$/i, ''),
+            file: new File([extractedFile], item.file.name, { type: mimeType }),
+            createdAt: Date.now(),
+            sourceType: 'local',
+            isCached: false,
+          };
+          
+          await addVideoZip(newVideo);
+          extractedCount++;
+          
+          // Update progress every 5 files
+          if (extractedCount % 5 === 0) {
+            console.log(`Extracted ${extractedCount}/${totalFiles} files...`);
+          }
+        } catch (err) {
+          console.error(`Failed to extract ${item.file.name}:`, err);
+        }
+      }
+
+      await loadData();
+      alert(`Successfully extracted ${extractedCount} files from archive!`);
+    } catch (err) {
+      console.error('Error extracting archive:', err);
+      alert('Failed to extract archive. It may be password protected or corrupted.');
+    } finally {
+      setIsExtracting(false);
     }
   };
 
@@ -902,6 +1031,23 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
             {localFolderHandle && (
               <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
                 {isSyncing ? 'Syncing...' : 'Sync All to Local'}
+              </span>
+            )}
+          </div>
+
+          <div className="group relative">
+            {folder?.isArchive && (
+              <button
+                onClick={handleExtractArchive}
+                disabled={isExtracting}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50"
+              >
+                {isExtracting ? <Loader2 size={20} className="animate-spin text-blue-400" /> : <Download size={20} className="text-blue-400" />}
+              </button>
+            )}
+            {folder?.isArchive && (
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                {isExtracting ? 'Extracting...' : 'Extract Archive'}
               </span>
             )}
           </div>
