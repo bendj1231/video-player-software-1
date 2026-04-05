@@ -34,13 +34,23 @@ function copyLibArchivePlugin() {
         fs.mkdirSync(destDir, { recursive: true });
       }
       
-      const files = fs.readdirSync(sourceDir);
-      for (const file of files) {
-        fs.copyFileSync(
-          path.join(sourceDir, file),
-          path.join(destDir, file)
-        );
-      }
+      // Recursively copy files (not directories as files)
+      const copyRecursive = (src: string, dest: string) => {
+        const stats = fs.statSync(src);
+        if (stats.isDirectory()) {
+          if (!fs.existsSync(dest)) {
+            fs.mkdirSync(dest, { recursive: true });
+          }
+          const files = fs.readdirSync(src);
+          for (const file of files) {
+            copyRecursive(path.join(src, file), path.join(dest, file));
+          }
+        } else {
+          fs.copyFileSync(src, dest);
+        }
+      };
+      
+      copyRecursive(sourceDir, destDir);
       console.log('Copied libarchive.js worker files to dist');
     }
   };
