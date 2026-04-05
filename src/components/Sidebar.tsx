@@ -83,6 +83,7 @@ export function Sidebar({
   };
 
   const handleFolderClick = (folderId: string) => {
+    console.log('Folder clicked:', folderId);
     onSelectFolder?.(folderId);
   };
 
@@ -243,7 +244,8 @@ export function Sidebar({
           label={theme === 'dark' ? 'Midnight' : theme === 'light' ? 'Daylight' : theme === 'futuristic' ? 'Cyber Blue' : 'Smokey Glass'} 
           isOpen={isOpen} 
           active={false}
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             console.log('Theme toggle clicked, current theme:', theme);
             const themes: ('dark' | 'light' | 'futuristic' | 'smokey')[] = ['dark', 'light', 'futuristic', 'smokey'];
             const currentIndex = themes.indexOf(theme || 'dark');
@@ -316,7 +318,7 @@ function SidebarItem({
   isOpen: boolean, 
   active: boolean,
   activeColor?: "white" | "amber",
-  onClick: () => void,
+  onClick: (e?: React.MouseEvent) => void,
   rightIcon?: ReactNode
 }) {
   const activeClasses = activeColor === "amber" 
@@ -325,7 +327,7 @@ function SidebarItem({
 
   return (
     <button
-      onClick={onClick}
+      onClick={(e) => onClick(e)}
       title={!isOpen ? label : undefined}
       className={clsx(
         "flex items-center rounded-2xl transition-all duration-300 overflow-hidden whitespace-nowrap w-full touch-manipulation",
