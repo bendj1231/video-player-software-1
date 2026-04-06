@@ -123,16 +123,21 @@ export function FolderDiscover({ onSelectFolder, onViewAllContents, onPlayVideo,
           // Use archiveName as the ID to prevent duplicates
           const existing = archiveMap.get(archiveName);
           if (existing) {
-            // Merge with existing
-            existing.videos = [...existing.videos, ...videos].slice(0, 15);
-            existing.photoCount = Math.max(existing.photoCount, photoCount);
+            // Merge with existing and recalculate counts
+            const mergedVideos = [...existing.videos, ...videos].slice(0, 20);
+            existing.videos = mergedVideos;
+            // Recalculate photo count from merged array
+            existing.photoCount = mergedVideos.filter(v => 
+              v.file.type?.startsWith('image/') || 
+              v.name.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i)
+            ).length;
           } else {
             archiveMap.set(archiveName, {
               archiveId: archiveName, // Use name as ID
               archiveName,
               folderId: folder.id,
               folderName: folder.name,
-              videos: videos.slice(0, 15),
+              videos: videos.slice(0, 20),
               photoCount
             });
           }
@@ -231,7 +236,15 @@ export function FolderDiscover({ onSelectFolder, onViewAllContents, onPlayVideo,
               className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide scroll-smooth"
               style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
             >
-              {group.videos.map((item) => {
+              {group.videos
+                .sort((a, b) => {
+                  const aIsVideo = a.file.type?.startsWith('video/') || a.name.match(/\.(mp4|webm|mov|mkv|avi|m4v|3gp|flv|wmv|ogv)$/i);
+                  const bIsVideo = b.file.type?.startsWith('video/') || b.name.match(/\.(mp4|webm|mov|mkv|avi|m4v|3gp|flv|wmv|ogv)$/i);
+                  if (aIsVideo && !bIsVideo) return -1;
+                  if (!aIsVideo && bIsVideo) return 1;
+                  return 0;
+                })
+                .map((item) => {
                 const isVideo = item.file.type?.startsWith('video/') || 
                                item.name.match(/\.(mp4|webm|mov|mkv|avi|m4v|3gp|flv|wmv|ogv)$/i);
                 const isPhoto = item.file.type?.startsWith('image/') || 

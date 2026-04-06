@@ -53,10 +53,18 @@ export function FolderContentsView({ folderId, archiveId, archiveName, onBack, o
 
         // If archiveId is provided, filter to only show files from that archive
         if (archiveId) {
-          media = media.filter(v => 
-            v.sourceArchiveId === archiveId || 
-            v.sourceArchiveName?.replace(/\.[^/.]+$/, '') === archiveId
-          );
+          console.log('Filtering by archiveId:', archiveId);
+          const beforeCount = media.length;
+          media = media.filter(v => {
+            const matchId = v.sourceArchiveId === archiveId;
+            const matchName = v.sourceArchiveName?.replace(/\.[^/.]+$/, '') === archiveId;
+            const matches = matchId || matchName;
+            if (!matches) {
+              console.log('Excluded file:', v.name, 'sourceArchiveId:', v.sourceArchiveId, 'sourceArchiveName:', v.sourceArchiveName);
+            }
+            return matches;
+          });
+          console.log(`Filtered: ${beforeCount} -> ${media.length} files`);
         }
 
         // Generate previews for all media files
