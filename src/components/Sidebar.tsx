@@ -1,12 +1,84 @@
 import { motion } from 'motion/react';
-import { ChevronRight, ChevronLeft, Folder, Home, Eye, EyeOff, Sun, Moon, Volume2, VolumeX, Trash2, Settings, ChevronDown, FolderOpen, Monitor, Cloud, CloudFog, Grid3X3, ImageIcon } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Folder, Home, Eye, EyeOff, Sun, Moon, Volume2, VolumeX, Trash2, Settings, ChevronDown, FolderOpen, Monitor, Cloud, CloudFog, Grid3X3, ImageIcon, Play } from 'lucide-react';
 import React, { useState, ReactNode, useEffect } from 'react';
 import { clsx } from 'clsx';
-import { Folder as FolderType, getSubfolders } from '../lib/db';
+import { Folder as FolderType, getSubfolders, getVideosByFolder } from '../lib/db';
 
 interface FolderTreeItem extends FolderType {
   subfolders: FolderTreeItem[];
   level: number;
+  previewUrl?: string;
+  isImage?: boolean;
+}
+
+// Component to load and display folder preview
+function FolderPreview({ folderId }: { folderId: string }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isImage, setIsImage] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    
+    async function loadPreview() {
+      const videos = await getVideosByFolder(folderId);
+      if (videos.length > 0 && mounted) {
+        // Filter out archive files
+        const mediaVids = videos.filter(v => {
+          const name = v.name.toLowerCase();
+          return !name.endsWith('.7z') && !name.endsWith('.zip') && !name.endsWith('.rar') &&
+                 (v.file.type.startsWith('video/') || v.file.type.startsWith('image/') ||
+                  name.endsWith('.mp4') || name.endsWith('.webm') || name.endsWith('.mov') ||
+                  name.endsWith('.mkv') || name.endsWith('.avi') || name.endsWith('.jpg') ||
+                  name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.gif'));
+        });
+        
+        // Prefer videos over images for preview
+        const videoVids = mediaVids.filter(v => !v.file.type.startsWith('image/') && !v.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/));
+        const photoVids = mediaVids.filter(v => v.file.type.startsWith('image/') || v.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/));
+        const previewItems = videoVids.length > 0 ? videoVids : photoVids;
+        
+        if (previewItems.length > 0) {
+          const firstItem = previewItems[0];
+          setIsImage(firstItem.file.type.startsWith('image/') || firstItem.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/));
+          // Create direct blob URL for preview
+          try {
+            const url = URL.createObjectURL(firstItem.file);
+            setPreviewUrl(url);
+          } catch (err) {
+            console.error('Failed to create preview URL for folder:', folderId, err);
+          }
+        }
+      }
+    }
+    
+    loadPreview();
+    return () => { mounted = false; };
+  }, [folderId]);
+
+  if (!previewUrl) {
+    return (
+      <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
+        <Folder size={20} className="text-zinc-500" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-zinc-800">
+      {isImage ? (
+        <img src={previewUrl} alt="" className="w-full h-full object-cover" />
+      ) : (
+        <video 
+          src={previewUrl} 
+          className="w-full h-full object-cover"
+          muted
+          loop
+          autoPlay
+          playsInline
+        />
+      )}
+    </div>
+  );
 }
 
 export function Sidebar({ 
@@ -121,6 +193,15 @@ export function Sidebar({
           active={currentView === 'mindmap'} 
           onClick={() => { console.log('MindMap clicked'); setView('mindmap'); }} 
         />
+
+        <SidebarItem 
+          id="netflix-btn"
+          icon={<Play size={28} />} 
+          label="Netflix Mode" 
+          isOpen={isOpen} 
+          active={currentView === 'netflix'} 
+          onClick={() => { console.log('Netflix Mode clicked'); setView('netflix'); }} 
+        />
         
         <div className="relative">
           <SidebarItem 
@@ -174,21 +255,19 @@ export function Sidebar({
                     <button
                       onClick={() => handleFolderClick(folder.id)}
                       className={clsx(
-                        "flex-1 flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98]",
+                        "flex-1 flex items-center gap-3 px-3 py-2 min-h-[56px] rounded-xl text-left transition-colors active:scale-[0.98]",
                         folder.localFolderPath 
                           ? "text-emerald-400 hover:bg-emerald-500/10 active:bg-emerald-500/20"
                           : "text-zinc-400 hover:bg-white/5 hover:text-white active:bg-white/10"
                       )}
                     >
-                      {folder.localFolderPath ? (
-                        <FolderOpen size={16} />
-                      ) : (
-                        <Folder size={16} />
-                      )}
-                      <span className="text-sm truncate">{folder.name}</span>
-                      {folder.localFolderPath && (
-                        <span className="text-[10px] ml-auto text-emerald-500/70">synced</span>
-                      )}
+                      <FolderPreview folderId={folder.id} />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm truncate block">{folder.name}</span>
+                        {folder.localFolderPath && (
+                          <span className="text-[10px] text-emerald-500/70 block">synced</span>
+                        )}
+                      </div>
                     </button>
                   </div>
                   
@@ -199,14 +278,14 @@ export function Sidebar({
                           key={subfolder.id}
                           onClick={() => handleFolderClick(subfolder.id)}
                           className={clsx(
-                            "w-full flex items-center gap-2 px-4 py-3 min-h-[44px] rounded-xl text-left transition-colors active:scale-[0.98]",
+                            "w-full flex items-center gap-3 px-3 py-2 min-h-[52px] rounded-xl text-left transition-colors active:scale-[0.98]",
                             subfolder.localFolderPath 
                               ? "text-emerald-400 hover:bg-emerald-500/10 active:bg-emerald-500/20"
                               : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300 active:bg-white/10"
                           )}
                         >
-                          <Folder size={14} />
-                          <span className="text-sm truncate">{subfolder.name}</span>
+                          <FolderPreview folderId={subfolder.id} />
+                          <span className="text-sm truncate flex-1">{subfolder.name}</span>
                         </button>
                       ))}
                     </div>

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { extractVideoFromZip } from '../lib/zip';
 
 interface FeaturedVideoCarouselProps {
-  onPlayVideo: (blob: Blob, videoId: string) => void;
+  onPlayVideo: (blob: Blob, videoId: string, videoName?: string) => void;
 }
 
 interface VideoWithPreview extends VideoZip {

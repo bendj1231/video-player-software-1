@@ -2,13 +2,16 @@ import { useState, useEffect } from 'react';
 import { VideoZip, getFolders, getVideosByFolder } from '../lib/db';
 import { FolderSection } from './FolderSection';
 import { Media3DCarousel } from './Media3DCarousel';
+import { FolderDiscover } from './FolderDiscover';
 import { HardDrive } from 'lucide-react';
 
-export function HomeView({ onPlayVideo, onSelectFolder, blurEnabled, theme }: { 
-  onPlayVideo: (blob: Blob, videoId: string) => void;
+export function HomeView({ onPlayVideo, onSelectFolder, onViewAllContents, blurEnabled, theme, refreshTrigger }: { 
+  onPlayVideo: (blob: Blob, videoId: string, videoName?: string) => void;
   onSelectFolder: (id: string) => void;
+  onViewAllContents: (folderId: string, archiveId?: string, archiveName?: string) => void;
   blurEnabled: boolean;
   theme?: 'dark' | 'light' | 'futuristic' | 'smokey';
+  refreshTrigger?: number;
 }) {
   const [totalVideos, setTotalVideos] = useState(0);
   const [totalPhotos, setTotalPhotos] = useState(0);
@@ -82,8 +85,15 @@ export function HomeView({ onPlayVideo, onSelectFolder, blurEnabled, theme }: {
         </div>
       </div>
 
+      {/* Section 1: Your Folders */}
       <FolderSection onSelectFolder={onSelectFolder} blurEnabled={blurEnabled} theme={theme} />
 
+      {/* Section 2: Extracted Archives - Netflix style carousels */}
+      <div className={`mb-12 transition-all duration-300 ${blurEnabled ? 'blur-[20px]' : ''}`}>
+        <FolderDiscover onSelectFolder={onSelectFolder} onViewAllContents={onViewAllContents} onPlayVideo={onPlayVideo} blurEnabled={blurEnabled} refreshTrigger={refreshTrigger} />
+      </div>
+
+      {/* Section 3: Media Carousel - All uploaded videos */}
       <div className={`mb-12 transition-all duration-300 ${blurEnabled ? 'blur-[20px]' : ''}`}>
         <Media3DCarousel onPlayVideo={onPlayVideo} blurEnabled={blurEnabled} />
       </div>

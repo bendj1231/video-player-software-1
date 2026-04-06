@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, ChangeEvent, useCallback, useMemo } from 'react';
 import JSZip from 'jszip';
-import { Folder, VideoZip, getFolders, addFolder, addVideoZip, getSubfolders, getVideosByFolder, dbPromise } from '../lib/db';
+import { Folder, VideoZip, getFolders, addFolder, addVideoZip, getSubfolders, getVideosByFolder, dbPromise, deleteGallery } from '../lib/db';
 import { Plus, Folder as FolderIcon, Loader2, Image as ImageIcon, Upload, FolderOpen, Download, Archive, Lock, Cloud, FolderPlus, HardDrive, Edit3, ExternalLink, RefreshCw, ArrowUpDown, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getVideoPreview } from '../lib/zip';
@@ -113,7 +113,7 @@ function HoverVideoCarousel({ videos }: { videos: VideoZip[] }) {
   );
 }
 
-function FolderCard({ folder, onClick, onLoad, onUpdate, columnIndex }: { folder: Folder, onClick: () => void, onLoad: () => void, onUpdate: () => void, columnIndex: number }) {
+function FolderCard({ folder, onClick, onLoad, onUpdate, columnIndex, isLarge }: { key?: React.Key; folder: Folder, onClick: () => void, onLoad: () => void, onUpdate: () => void, columnIndex: number, isLarge?: boolean }) {
   const [isHovered, setIsHovered] = useState(false);
   const [videos, setVideos] = useState<VideoZip[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -126,24 +126,36 @@ function FolderCard({ folder, onClick, onLoad, onUpdate, columnIndex }: { folder
 
   useEffect(() => {
     getVideosByFolder(folder.id).then((vids) => {
+      // Filter out archive files - only show media
+      const mediaVids = vids.filter(v => {
+        const name = v.name.toLowerCase();
+        return !name.endsWith('.7z') && !name.endsWith('.zip') && !name.endsWith('.rar') &&
+               (v.file.type.startsWith('video/') || v.file.type.startsWith('image/') ||
+                name.endsWith('.mp4') || name.endsWith('.webm') || name.endsWith('.mov') ||
+                name.endsWith('.mkv') || name.endsWith('.avi') || name.endsWith('.jpg') ||
+                name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.gif'));
+      });
+      
       // Only use videos for preview first, but fall back to photos if no videos
-      const videoVids = vids.filter(v => !v.file.type.startsWith('image/'));
-      const photoVids = vids.filter(v => v.file.type.startsWith('image/'));
+      const videoVids = mediaVids.filter(v => !v.file.type.startsWith('image/') && !v.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/));
+      const photoVids = mediaVids.filter(v => v.file.type.startsWith('image/') || v.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/));
       
       // Use first video if available, otherwise use first photo as fallback
       const previewItems = videoVids.length > 0 ? videoVids : photoVids;
       setVideos(previewItems);
       
-      // Get preview for first available item
+      // Get preview for first available item - use direct blob URL
       if (previewItems.length > 0) {
         const firstItem = previewItems[0];
-        const isImg = firstItem.file.type.startsWith('image/');
+        const isImg = firstItem.file.type.startsWith('image/') || firstItem.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/);
         setIsImage(isImg);
-        getVideoPreview(firstItem.file).then((res) => {
-          if (res) {
-            setPreviewUrl(res.url);
-          }
-        });
+        // Create direct blob URL for preview (same as FolderPreview)
+        try {
+          const url = URL.createObjectURL(firstItem.file);
+          setPreviewUrl(url);
+        } catch (err) {
+          console.error('Failed to create preview URL for folder:', folder.name, err);
+        }
       }
     });
     
@@ -334,8 +346,12 @@ function FolderCard({ folder, onClick, onLoad, onUpdate, columnIndex }: { folder
             onClick={(e) => {
               e.stopPropagation();
               if (confirm(`Delete "${folder.name}" gallery?`)) {
-                import('../lib/db').then(({ deleteFolder }) => {
-                  deleteFolder(folder.id).then(() => onUpdate());
+                deleteGallery(folder.id).then((deleted) => {
+                  if (deleted) {
+                    onUpdate();
+                  } else {
+                    alert('This is a directory folder and cannot be deleted from the Galleries page.');
+                  }
                 });
               }
             }}
@@ -405,11 +421,28 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
 
   const loadFolders = async () => {
     const allFolders = await getFolders();
-    setFolders(allFolders);
     
-    // Load stats for all folders
-    const stats = new Map<string, { count: number; lastModified: number }>();
+    // Show all folders including those with archives or media
+    const foldersWithContent = [];
     for (const folder of allFolders) {
+      const videos = await getVideosByFolder(folder.id);
+      // Include folder if it has any content (videos, images, or archives)
+      if (videos.length > 0 || folder.isArchive) {
+        foldersWithContent.push(folder);
+      }
+    }
+    
+    // If no folders with content found, show all folders
+    if (foldersWithContent.length === 0 && allFolders.length > 0) {
+      console.log('No content folders found, showing all folders');
+      setFolders(allFolders);
+    } else {
+      setFolders(foldersWithContent);
+    }
+    
+    // Load stats for folders
+    const stats = new Map<string, { count: number; lastModified: number }>();
+    for (const folder of foldersWithContent.length > 0 ? foldersWithContent : allFolders) {
       const videos = await getVideosByFolder(folder.id);
       const count = videos.length;
       const lastModified = videos.length > 0 
@@ -476,8 +509,8 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
     }
   };
 
-  const handleMountLocalFolder = async () => {
-    // Use File System Access API to mount folder, scan subdirectories, and import files
+  const handleMountLocalFolder = async (browseOnly: boolean = false) => {
+    // Use File System Access API to mount folder
     const { requestLocalFolderAccess, storeDirectoryHandle } = await import('../lib/fileSystem');
     const { handle, error } = await requestLocalFolderAccess();
     
@@ -486,6 +519,46 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
       return;
     }
     
+    // If browse-only mode, just mount without importing
+    if (browseOnly) {
+      const folderName = handle.name;
+      const newFolder: Folder = {
+        id: crypto.randomUUID(),
+        name: folderName,
+        localFolderPath: handle.name,
+        parentId: undefined,
+        createdAt: Date.now(),
+        sourceType: 'local',
+      };
+      await addFolder(newFolder);
+      await storeDirectoryHandle(newFolder.id, handle);
+      
+      // Count files for display
+      let fileCount = 0;
+      const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
+      
+      try {
+        // @ts-ignore
+        for await (const entry of handle.values()) {
+          if (entry.kind === 'file') {
+            const fileName = entry.name.toLowerCase();
+            if (videoExtensions.some(ext => fileName.endsWith(ext)) ||
+                imageExtensions.some(ext => fileName.endsWith(ext))) {
+              fileCount++;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error counting files:', err);
+      }
+      
+      alert(`Mounted "${folderName}" in browse mode. ${fileCount} media files available. Click the folder to view contents without uploading.`);
+      loadFolders();
+      return;
+    }
+    
+    // Full import mode (original behavior)
     setIsUploading(true);
     let folderCount = 0;
     let totalFileCount = 0;
@@ -638,6 +711,8 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
 
   const handleFolderUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
+    // Clear input value immediately to prevent duplicate onChange events
+    if (folderInputRef.current) folderInputRef.current.value = '';
     if (!files || files.length === 0) return;
     
     setIsUploading(true);
@@ -653,14 +728,23 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
     };
     await addFolder(newFolder);
     
-    const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi'];
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.jfif'];
+    const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
     let fileCount = 0;
+    const processedFiles = new Set<string>();
     
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const fileName = file.name.toLowerCase();
       
+      // Create unique key for this file to prevent duplicates
+      const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+      if (processedFiles.has(fileKey)) {
+        console.log(`Skipping duplicate file: ${file.name}`);
+        continue;
+      }
+      processedFiles.add(fileKey);
+      
+      const fileName = file.name.toLowerCase();
       const isVideo = videoExtensions.some(ext => fileName.endsWith(ext));
       const isImage = imageExtensions.some(ext => fileName.endsWith(ext));
       
@@ -693,8 +777,6 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
     } else {
       alert("No video or image files found in the selected folder.");
     }
-    
-    if (folderInputRef.current) folderInputRef.current.value = '';
   };
 
   // Handle drag and drop
@@ -1031,8 +1113,17 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
   const processDroppedRegularFiles = async (files: File[]) => {
     // Try to detect if files are from the same folder
     const pathMap = new Map<string, File[]>();
+    const processedFileKeys = new Set<string>();
     
     for (const file of files) {
+      // Create unique key to prevent duplicate processing
+      const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+      if (processedFileKeys.has(fileKey)) {
+        console.log(`Skipping duplicate file in drop: ${file.name}`);
+        continue;
+      }
+      processedFileKeys.add(fileKey);
+      
       // Try to get relative path from webkitRelativePath
       const relativePath = (file as any).webkitRelativePath || '';
       const folderName = relativePath.split('/')[0] || 'Dropped Files';
@@ -1344,12 +1435,20 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
               Import Archive
             </button>
             <button
-              onClick={handleMountLocalFolder}
+              onClick={() => handleMountLocalFolder(false)}
               disabled={isUploading}
               className="flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 px-3 py-1.5 rounded-full transition-all backdrop-blur-xl border border-amber-500/20 disabled:opacity-50 text-xs"
             >
               {isUploading ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
-              Mount Local
+              Mount & Import
+            </button>
+            <button
+              onClick={() => handleMountLocalFolder(true)}
+              disabled={isUploading}
+              className="flex items-center gap-1.5 bg-zinc-500/15 hover:bg-zinc-500/25 text-zinc-300 px-3 py-1.5 rounded-full transition-all backdrop-blur-xl border border-zinc-500/20 disabled:opacity-50 text-xs"
+            >
+              <FolderOpen size={14} />
+              Browse Only
             </button>
             <button
               onClick={() => folderInputRef.current?.click()}
@@ -1375,20 +1474,35 @@ export function GalleryView({ onSelectFolder, blurEnabled, theme }: { onSelectFo
         </div>
       </div>
 
-      {/* Pinterest masonry grid */}
+      {/* Bento-style grid - Grok aesthetic */}
       <div className={`px-4 py-6 transition-all duration-300 ${blurEnabled ? 'blur-[20px]' : ''}`}>
         {sortedFolders.length > 0 ? (
-          <div className="columns-2 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 2xl:columns-7 gap-4 [column-fill:_balance]">
-            {sortedFolders.map((folder, i) => (
-              <FolderCard
-                key={folder.id}
-                folder={folder}
-                onClick={() => onSelectFolder(folder.id)}
-                onLoad={() => onSelectFolder(folder.id)}
-                onUpdate={loadFolders}
-                columnIndex={i}
-              />
-            ))}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 auto-rows-[200px]">
+            {sortedFolders.map((folder, i) => {
+              // Create bento pattern: every 7th item is large (spans 2 rows and cols on larger screens)
+              const isLarge = i % 7 === 0 && i > 0;
+              const isWide = i % 5 === 0 && !isLarge;
+              
+              return (
+                <div
+                  key={folder.id}
+                  className={`${
+                    isLarge ? 'sm:col-span-2 sm:row-span-2' : ''
+                  } ${
+                    isWide ? 'sm:col-span-2' : ''
+                  } min-h-[180px]`}
+                >
+                  <FolderCard
+                    folder={folder}
+                    onClick={() => onSelectFolder(folder.id)}
+                    onLoad={() => onSelectFolder(folder.id)}
+                    onUpdate={loadFolders}
+                    columnIndex={i}
+                    isLarge={isLarge}
+                  />
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-32 text-zinc-500">

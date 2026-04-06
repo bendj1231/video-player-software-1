@@ -30,8 +30,8 @@ export async function requestLocalFolderAccess(): Promise<{ handle: FileSystemDi
     }
 
     const dirHandle = await window.showDirectoryPicker({
-      mode: 'readwrite',
-      startIn: 'desktop'
+      mode: 'readwrite'
+      // Note: Not specifying startIn allows user to navigate anywhere including external drives
     });
 
     if (dirHandle.requestPermission) {
@@ -242,9 +242,125 @@ async function openDirectoryHandleDB() {
 }
 
 /**
- * Initialize local folder for a gallery folder
- * Creates folder on desktop and stores the handle
+ * Get folder hierarchy structure recursively
+ * Returns a tree structure of folder names without mounting
  */
+export interface FolderHierarchy {
+  name: string;
+  path: string;
+  handle: FileSystemDirectoryHandle;
+  children: FolderHierarchy[];
+  fileCount: number;
+}
+
+export async function getFolderHierarchy(
+  handle: FileSystemDirectoryHandle,
+  path: string = ''
+): Promise<FolderHierarchy> {
+  const children: FolderHierarchy[] = [];
+  let fileCount = 0;
+  
+  try {
+    // @ts-ignore - FileSystemDirectoryHandle iteration
+    for await (const entry of handle.values()) {
+      if (entry.kind === 'directory') {
+        const childPath = path ? `${path}/${entry.name}` : entry.name;
+        const childHierarchy = await getFolderHierarchy(entry, childPath);
+        children.push(childHierarchy);
+      } else if (entry.kind === 'file') {
+        fileCount++;
+      }
+    }
+  } catch (err) {
+    console.error('Error reading folder contents:', err);
+  }
+  
+  return {
+    name: handle.name,
+    path: path || handle.name,
+    handle,
+    children,
+    fileCount
+  };
+}
+
+/**
+ * Browse for existing folder and get its hierarchy
+ */
+export async function browseExistingFolder(): Promise<{ hierarchy: FolderHierarchy | null; error?: string }> {
+  try {
+    if (!window.showDirectoryPicker) {
+      return { hierarchy: null, error: 'File System Access API not supported. Please use Chrome or Edge browser.' };
+    }
+
+    const dirHandle = await window.showDirectoryPicker({
+      mode: 'read'
+    });
+
+    const hierarchy = await getFolderHierarchy(dirHandle);
+    return { hierarchy };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { hierarchy: null, error: 'Selection canceled.' };
+    }
+    console.error('Error browsing folder:', err);
+    return { hierarchy: null, error: 'Failed to browse folder. Please try again.' };
+  }
+}
+/**
+ * Refresh local folder connection and detect new files
+ * Scans the local folder and returns any new files not in the database
+ */
+export interface RefreshResult {
+  success: boolean;
+  newFiles: string[];
+  removedFiles: string[];
+  error?: string;
+}
+
+export async function refreshLocalFolder(
+  folderId: string,
+  existingFileNames: string[]
+): Promise<RefreshResult> {
+  try {
+    const handle = await getStoredDirectoryHandle(folderId);
+    if (!handle) {
+      return { success: false, newFiles: [], removedFiles: [], error: 'No local folder connected' };
+    }
+
+    // Scan current files in the local folder
+    const currentFiles: string[] = [];
+    try {
+      // @ts-ignore - FileSystemDirectoryHandle iteration
+      for await (const entry of handle.values()) {
+        if (entry.kind === 'file') {
+          currentFiles.push(entry.name);
+        }
+      }
+    } catch (err) {
+      console.error('Error reading local folder:', err);
+      return { success: false, newFiles: [], removedFiles: [], error: 'Failed to read local folder' };
+    }
+
+    // Find new files (in current but not in existing)
+    const newFiles = currentFiles.filter(file => !existingFileNames.some(existing => 
+      file.toLowerCase().startsWith(existing.toLowerCase()) || 
+      existing.toLowerCase().startsWith(file.toLowerCase())
+    ));
+
+    // Find removed files (in existing but not in current)
+    const removedFiles = existingFileNames.filter(existing => !currentFiles.some(file => 
+      file.toLowerCase().startsWith(existing.toLowerCase()) || 
+      existing.toLowerCase().startsWith(file.toLowerCase())
+    ));
+
+    return { success: true, newFiles, removedFiles };
+  } catch (err) {
+    console.error('Error refreshing local folder:', err);
+    return { success: false, newFiles: [], removedFiles: [], error: 'Failed to refresh connection' };
+  }
+}
+
 export async function initializeLocalFolder(
   folderId: string,
   folderName: string

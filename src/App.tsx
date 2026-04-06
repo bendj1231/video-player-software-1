@@ -3,10 +3,13 @@ import { Sidebar } from './components/Sidebar';
 import { HomeView } from './components/HomeView';
 import { GalleryView } from './components/GalleryView';
 import { FolderView } from './components/FolderView';
+import { FolderPreview } from './components/FolderPreview';
+import { FolderContentsView } from './components/FolderContentsView';
 import { VideoPlayerModal } from './components/VideoPlayerModal';
 import { MultiViewPlayer } from './components/MultiViewPlayer';
 import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { MindMapView } from './components/MindMapView';
+import { NetflixMode } from './components/NetflixMode';
 import { deleteVideoZip } from './lib/db';
 import { clearCache } from './lib/fileSystem';
 
@@ -20,11 +23,16 @@ const isIPadPro129 = () => {
 
 export default function App() {
   const [currentView, setCurrentView] = useState('home');
+  const [previousView, setPreviousView] = useState('home');
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-  const [playingVideo, setPlayingVideo] = useState<{ blob: Blob | null, id: string | null }>({ blob: null, id: null });
+  const [previewFolderId, setPreviewFolderId] = useState<string | null>(null);
+  const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null);
+  const [selectedArchiveName, setSelectedArchiveName] = useState<string | null>(null);
+  const [playingVideo, setPlayingVideo] = useState<{ blob: Blob | null, id: string | null, name: string | null }>({ blob: null, id: null, name: null });
   const [privacyMode, setPrivacyMode] = useState<'none' | 'blur' | 'cover'>('none');
   const [isMuted, setIsMuted] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -39,24 +47,32 @@ export default function App() {
 
   const handleSetView = (view: string) => {
     console.log('View changing to:', view);
-    setCurrentView(view);
-    if (view !== 'folder') {
-      setSelectedFolderId(null);
+    // Track previous view before changing
+    if (currentView !== 'folder-preview' && currentView !== 'folder') {
+      setPreviousView(currentView);
     }
-    // Auto-fold sidebar in multiview
+    setCurrentView(view);
+    if (view !== 'folder' && view !== 'folder-preview') {
+      setSelectedFolderId(null);
+      setPreviewFolderId(null);
+    }
     if (view === 'multiview') {
       setSidebarOpen(false);
     }
   };
 
   const handleSelectFolder = (id: string) => {
-    setSelectedFolderId(id);
-    setCurrentView('folder');
-    setSidebarOpen(false); // Fold sidebar when opening folder
+    console.log('handleSelectFolder called with id:', id);
+    setPreviewFolderId(id);
+    setCurrentView('folder-preview');
+    setSidebarOpen(false);
+    // Increment refresh trigger to reload folder preview data
+    setRefreshTrigger(prev => prev + 1);
+    console.log('View changed to folder-preview, previewFolderId set to:', id);
   };
 
-  const handlePlayVideo = (blob: Blob, videoId: string) => {
-    setPlayingVideo({ blob, id: videoId });
+  const handlePlayVideo = (blob: Blob, videoId: string, videoName?: string) => {
+    setPlayingVideo({ blob, id: videoId, name: videoName || null });
   };
 
   const handleDeleteVideo = async (videoId: string) => {
@@ -65,10 +81,22 @@ export default function App() {
 
   const handleNavigateToFolder = (id: string) => {
     setSelectedFolderId(id);
+    setPreviewFolderId(null);
+  };
+
+  const handleViewAllContents = (folderId: string, archiveId?: string, archiveName?: string) => {
+    setPreviewFolderId(folderId);
+    setSelectedArchiveId(archiveId || null);
+    setSelectedArchiveName(archiveName || null);
+    setCurrentView('folder-contents');
   };
 
   const handleBackFromFolder = () => {
-    handleSetView('galleries');
+    if (currentView === 'folder-preview') {
+      handleSetView('mindmap');
+    } else {
+      handleSetView('galleries');
+    }
   };
 
   const [multiviewFullscreen, setMultiviewFullscreen] = useState(false);
@@ -123,10 +151,52 @@ export default function App() {
 
       <main className="flex-1 overflow-y-auto relative z-10">
         <div className={currentView === 'galleries' || currentView === 'multiview' ? '' : 'max-w-7xl mx-auto'}>
-          {currentView === 'home' && <HomeView onPlayVideo={handlePlayVideo} onSelectFolder={handleSelectFolder} blurEnabled={privacyMode === 'blur'} />}
+          {currentView === 'home' && <HomeView onPlayVideo={handlePlayVideo} onSelectFolder={handleSelectFolder} onViewAllContents={handleViewAllContents} blurEnabled={privacyMode === 'blur'} refreshTrigger={refreshTrigger} />}
           {currentView === 'multiview' && <MultiViewPlayer onBack={() => setCurrentView('home')} onFullscreenChange={handleMultiviewFullscreenChange} />}
-          {currentView === 'mindmap' && <MindMapView />}
+          {currentView === 'mindmap' && <MindMapView onSelectFolder={handleSelectFolder} onImportComplete={() => {
+            console.log('File import complete');
+            alert(`Import complete! Check console (F12) for details.`);
+            setRefreshTrigger(prev => prev + 1);
+          }} />}
+          {currentView === 'netflix' && <NetflixMode onSelectFolder={handleSelectFolder} onPlayVideo={handlePlayVideo} onViewAllContents={handleViewAllContents} blurEnabled={privacyMode === 'blur'} />}
           {currentView === 'galleries' && <GalleryView onSelectFolder={handleSelectFolder} blurEnabled={privacyMode === 'blur'} />}
+          {currentView === 'folder-contents' && previewFolderId && (
+            <FolderContentsView
+              folderId={previewFolderId}
+              archiveId={selectedArchiveId || undefined}
+              archiveName={selectedArchiveName || undefined}
+              onBack={() => setCurrentView('folder-preview')}
+              onPlayVideo={handlePlayVideo}
+              blurEnabled={privacyMode === 'blur'}
+              isMuted={isMuted}
+            />
+          )}
+          {currentView === 'folder-preview' && previewFolderId && (
+            <FolderPreview
+              folderId={previewFolderId}
+              onBack={handleBackFromFolder}
+              onViewContents={() => {
+                setCurrentView('folder-contents');
+              }}
+              onPlayVideo={handlePlayVideo}
+              blurEnabled={privacyMode === 'blur'}
+              isMuted={isMuted}
+              refreshTrigger={refreshTrigger}
+            />
+          )}
+          {currentView === 'folder-preview' && !previewFolderId && (
+            <div className="flex items-center justify-center h-full text-zinc-500">
+              <div className="text-center">
+                <p>No folder selected (previewFolderId is empty)</p>
+                <button 
+                  onClick={() => setCurrentView('home')}
+                  className="mt-4 px-4 py-2 bg-emerald-600 text-white rounded-lg"
+                >
+                  Go Home
+                </button>
+              </div>
+            </div>
+          )}
           {currentView === 'folder' && selectedFolderId && (
             <FolderView
               folderId={selectedFolderId}
@@ -137,13 +207,27 @@ export default function App() {
               isMuted={isMuted}
             />
           )}
+          {!['home', 'multiview', 'mindmap', 'netflix', 'galleries', 'folder-preview', 'folder', 'folder-contents'].includes(currentView) && (
+            <div className="flex items-center justify-center h-full text-zinc-500">
+              <div className="text-center">
+                <p>Unknown view: {currentView}</p>
+                <button 
+                  onClick={() => setCurrentView('home')}
+                  className="mt-4 px-4 py-2 bg-emerald-600 text-white rounded-lg"
+                >
+                  Go Home
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
       <VideoPlayerModal
         zipBlob={playingVideo.blob}
         videoId={playingVideo.id || undefined}
-        onClose={() => setPlayingVideo({ blob: null, id: null })}
+        videoName={playingVideo.name || undefined}
+        onClose={() => setPlayingVideo({ blob: null, id: null, name: null })}
         isMuted={isMuted}
         blurEnabled={privacyMode === 'blur'}
       />

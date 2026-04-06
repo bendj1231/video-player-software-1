@@ -4,7 +4,7 @@ import { Play } from 'lucide-react';
 import { getVideoPreview } from '../lib/zip';
 
 interface Media3DCarouselProps {
-  onPlayVideo: (blob: Blob, videoId: string) => void;
+  onPlayVideo: (blob: Blob, videoId: string, videoName?: string) => void;
   blurEnabled?: boolean;
 }
 
@@ -63,9 +63,9 @@ export function Media3DCarousel({ onPlayVideo, blurEnabled }: Media3DCarouselPro
       allVideos = allVideos.concat(vids.map(v => ({ ...v, folderId: folder.id, folderName: folder.name })));
     }
     
-    // Get previews for all videos
+    // Get previews for ALL videos (no limit)
     const withPreviews = await Promise.all(
-      allVideos.slice(0, 20).map(async (video) => {
+      allVideos.map(async (video) => {
         const result = await getVideoPreview(video.file, video.name);
         return {
           ...video,
@@ -109,7 +109,7 @@ export function Media3DCarousel({ onPlayVideo, blurEnabled }: Media3DCarouselPro
           <div
             key={`${item.id}-${index}`}
             className="shrink-0 w-72 cursor-pointer group"
-            onClick={() => onPlayVideo(item.file, item.id)}
+            onClick={() => onPlayVideo(item.file, item.id, item.name)}
           >
             <div className="relative h-48 overflow-hidden rounded-lg bg-black">
               <div className="relative w-full h-full bg-black">

@@ -134,3 +134,86 @@ export async function extract7zFile(
     throw error;
   }
 }
+
+export async function extract7z(
+  file: File, 
+  archiveName: string,
+  password?: string
+): Promise<{ success: boolean; files?: { name: string; blob: Blob }[]; error?: string }> {
+  try {
+    const sevenZip = await init7zWasm();
+    
+    // Write archive to virtual filesystem
+    const archivePath = '/input.7z';
+    const outputDir = '/output/';
+    const data = new Uint8Array(await file.arrayBuffer());
+    sevenZip.FS.writeFile(archivePath, data);
+    
+    // Create output directory
+    try {
+      sevenZip.FS.mkdir(outputDir);
+    } catch (e) {
+      // May already exist
+    }
+    
+    // Extract all files
+    const passArg = password ? `-p${password}` : '-p';
+    sevenZip.callMain(['x', passArg, archivePath, `-o${outputDir}`, '-y']);
+    
+    // Read all extracted files
+    const extractedFiles: { name: string; blob: Blob }[] = [];
+    
+    function readDirRecursive(dirPath: string, basePath: string = '') {
+      const entries = sevenZip.FS.readdir(dirPath);
+      for (const entry of entries) {
+        if (entry === '.' || entry === '..') continue;
+        
+        const fullPath = dirPath + '/' + entry;
+        const relativePath = basePath ? `${basePath}/${entry}` : entry;
+        
+        const stat = sevenZip.FS.stat(fullPath);
+        if (stat.mode & 0o40000) {
+          // Directory - recurse
+          readDirRecursive(fullPath, relativePath);
+        } else {
+          // File - read it
+          const fileData = sevenZip.FS.readFile(fullPath);
+          extractedFiles.push({
+            name: relativePath,
+            blob: new Blob([fileData])
+          });
+        }
+      }
+    }
+    
+    readDirRecursive(outputDir);
+    
+    // Cleanup
+    try {
+      sevenZip.FS.unlink(archivePath);
+      // Recursively remove output dir
+      function removeDir(dirPath: string) {
+        const entries = sevenZip.FS.readdir(dirPath);
+        for (const entry of entries) {
+          if (entry === '.' || entry === '..') continue;
+          const fullPath = dirPath + '/' + entry;
+          const stat = sevenZip.FS.stat(fullPath);
+          if (stat.mode & 0o40000) {
+            removeDir(fullPath);
+          } else {
+            sevenZip.FS.unlink(fullPath);
+          }
+        }
+        sevenZip.FS.rmdir(dirPath);
+      }
+      removeDir(outputDir);
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+    
+    return { success: true, files: extractedFiles };
+  } catch (error) {
+    console.error('7z extraction error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}

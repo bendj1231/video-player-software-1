@@ -4,6 +4,20 @@ import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 import fs from 'fs';
 
+// Plugin to add COOP/COEP headers for SharedArrayBuffer support (required for FFmpeg)
+function crossOriginPlugin() {
+  return {
+    name: 'cross-origin',
+    configureServer(server: any) {
+      server.middlewares.use((req: any, res: any, next: any) => {
+        res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+        res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+        next();
+      });
+    },
+  };
+}
+
 // Plugin to copy libarchive.js worker files
 function copyLibArchivePlugin() {
   return {
@@ -120,7 +134,7 @@ function copy7zWasmPlugin() {
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    plugins: [react(), tailwindcss(), copyLibArchivePlugin(), copy7zWasmPlugin()],
+    plugins: [react(), tailwindcss(), crossOriginPlugin(), copyLibArchivePlugin(), copy7zWasmPlugin()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Folder, getFolders, getVideosByFolder } from '../lib/db';
 import { FolderIcon, ChevronRight, HardDrive } from 'lucide-react';
+import { getStoredDirectoryHandle } from '../lib/fileSystem';
 
 interface FolderSectionProps {
   onSelectFolder: (id: string) => void;
@@ -10,6 +11,7 @@ interface FolderSectionProps {
 
 interface FolderWithCount extends Folder {
   videoCount: number;
+  localFileCount: number;
 }
 
 const themeColors = {
@@ -62,7 +64,26 @@ export function FolderSection({ onSelectFolder, blurEnabled, theme = 'dark' }: F
     const withCounts = await Promise.all(
       folderList.map(async (folder) => {
         const videos = await getVideosByFolder(folder.id);
-        return { ...folder, videoCount: videos.length };
+        
+        // Try to get local folder file count if synced
+        let localFileCount = 0;
+        if (folder.localFolderPath) {
+          try {
+            const handle = await getStoredDirectoryHandle(folder.id);
+            if (handle) {
+              // @ts-ignore
+              for await (const entry of handle.values()) {
+                if (entry.kind === 'file') {
+                  localFileCount++;
+                }
+              }
+            }
+          } catch (err) {
+            console.log('Could not access local folder for count:', folder.name);
+          }
+        }
+        
+        return { ...folder, videoCount: videos.length, localFileCount };
       })
     );
     
@@ -100,7 +121,13 @@ export function FolderSection({ onSelectFolder, blurEnabled, theme = 'dark' }: F
   return (
     <div className={`mb-8 transition-all duration-300 ${blurEnabled ? 'blur-[20px]' : ''}`}>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold text-white">Your Folders</h2>
+        <button 
+          onClick={() => onSelectFolder('')} 
+          className="group flex items-center gap-2"
+        >
+          <h2 className="text-xl font-semibold text-white group-hover:text-violet-400 transition-colors">Your Folders</h2>
+          <ChevronRight size={20} className="text-zinc-500 group-hover:text-violet-400 group-hover:translate-x-1 transition-all" />
+        </button>
         <span className="text-zinc-500 text-sm">{folders.length} folders</span>
       </div>
       
@@ -135,7 +162,12 @@ export function FolderSection({ onSelectFolder, blurEnabled, theme = 'dark' }: F
                 {/* Folder Info */}
                 <div className="text-center px-2">
                   <p className="text-white font-medium truncate text-sm max-w-[100px]">{folder.name}</p>
-                  <p className="text-white/50 text-xs">{folder.videoCount} videos</p>
+                  <p className="text-white/50 text-xs">
+                    {folder.videoCount > 0 
+                      ? `${folder.videoCount} files`
+                      : '0 files'
+                    }
+                  </p>
                 </div>
               </div>
             </button>

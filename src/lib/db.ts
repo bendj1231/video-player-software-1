@@ -31,6 +31,9 @@ export interface VideoZip {
   createdAt: number;
   sourceType?: 'local' | 'mega' | 'cloud'; // Track if video is from cloud or local
   isCached?: boolean; // If true, video is cached from cloud but not saved locally yet
+  isPasswordProtected?: boolean; // For archive files - indicates if password protected
+  sourceArchiveId?: string; // ID of the archive this file was extracted from
+  sourceArchiveName?: string; // Name of the archive this file was extracted from
 }
 
 interface VideoVaultDB extends DBSchema {
@@ -44,9 +47,19 @@ interface VideoVaultDB extends DBSchema {
     value: VideoZip;
     indexes: { 'by-folder': string };
   };
+  archivePreviews: {
+    key: string;
+    value: {
+      archiveId: string;
+      folderId: string;
+      previewUrls: string[];
+      updatedAt: number;
+    };
+    indexes: { 'by-folder': string };
+  };
 }
 
-export const dbPromise = openDB<VideoVaultDB>('video-vault-db', 4, {
+export const dbPromise = openDB<VideoVaultDB>('video-vault-db', 5, {
   upgrade(db, oldVersion, newVersion, transaction) {
     // Create folders store
     if (!db.objectStoreNames.contains('folders')) {
@@ -61,6 +74,15 @@ export const dbPromise = openDB<VideoVaultDB>('video-vault-db', 4, {
     // Migration for version 4: add groupByDate support (no schema change needed, just default values)
     if (oldVersion < 4) {
       console.log('Migrating to version 4: groupByDate support enabled');
+    }
+    
+    // Migration for version 5: add archivePreviews store
+    if (oldVersion < 5) {
+      console.log('Migrating to version 5: archivePreviews store added');
+      if (!db.objectStoreNames.contains('archivePreviews')) {
+        const previewStore = db.createObjectStore('archivePreviews', { keyPath: 'archiveId' });
+        previewStore.createIndex('by-folder', 'folderId');
+      }
     }
     
     // Create videoZips store - always check and create if missing
@@ -157,6 +179,22 @@ export async function deleteVideoZip(id: string) {
   await db.delete('videoZips', id);
 }
 
+export async function forceClearFolderVideos(folderId: string): Promise<number> {
+  const db = await dbPromise;
+  const tx = db.transaction('videoZips', 'readwrite');
+  const index = tx.objectStore('videoZips').index('by-folder');
+  let cursor = await index.openCursor(IDBKeyRange.only(folderId));
+  let deletedCount = 0;
+  while (cursor) {
+    await cursor.delete();
+    deletedCount++;
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+  console.log(`Force cleared ${deletedCount} videos from folder ${folderId}`);
+  return deletedCount;
+}
+
 export async function deleteFolder(id: string) {
   const db = await dbPromise;
   
@@ -178,4 +216,66 @@ export async function deleteFolder(id: string) {
   // Delete the folder itself
   await tx.objectStore('folders').delete(id);
   await tx.done;
+}
+
+// Delete a content gallery (folder with videos) - does NOT delete directory folders
+export async function deleteGallery(id: string): Promise<boolean> {
+  const db = await dbPromise;
+  
+  // Check if this folder has videos (is a content gallery)
+  const videos = await getVideosByFolder(id);
+  const folder = await getFolderById(id);
+  
+  // If folder has no videos and is a directory folder (mindmap organizational), don't delete it
+  if (videos.length === 0 && folder?.sourceType === 'local') {
+    // This is a directory folder without content - don't delete
+    return false;
+  }
+  
+  // This is a content gallery - proceed with deletion
+  // Recursively delete all subfolders first (only if they have content)
+  const subfolders = await getSubfolders(id);
+  for (const subfolder of subfolders) {
+    await deleteGallery(subfolder.id);
+  }
+  
+  // Delete all videos in this folder
+  const tx = db.transaction(['folders', 'videoZips'], 'readwrite');
+  const index = tx.objectStore('videoZips').index('by-folder');
+  let cursor = await index.openCursor(IDBKeyRange.only(id));
+  while (cursor) {
+    await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  
+  // Delete the folder itself
+  await tx.objectStore('folders').delete(id);
+  await tx.done;
+  
+  return true;
+}
+
+export async function saveArchivePreview(archiveId: string, folderId: string, previewUrls: string[]) {
+  const db = await dbPromise;
+  await db.put('archivePreviews', {
+    archiveId,
+    folderId,
+    previewUrls,
+    updatedAt: Date.now(),
+  });
+}
+
+export async function getArchivePreviewsByFolder(folderId: string): Promise<Map<string, string[]>> {
+  const db = await dbPromise;
+  const previews = await db.getAllFromIndex('archivePreviews', 'by-folder', folderId);
+  const result = new Map<string, string[]>();
+  for (const preview of previews) {
+    result.set(preview.archiveId, preview.previewUrls);
+  }
+  return result;
+}
+
+export async function deleteArchivePreview(archiveId: string) {
+  const db = await dbPromise;
+  await db.delete('archivePreviews', archiveId);
 }

@@ -8,6 +8,7 @@ import { needsTranscoding, transcodeVideo, getVideoFormat } from '../lib/ffmpeg'
 export function VideoPlayerModal({ 
   zipBlob, 
   videoId,
+  videoName,
   onClose, 
   isMuted = true,
   blurEnabled = false,
@@ -18,6 +19,7 @@ export function VideoPlayerModal({
 }: { 
   zipBlob: Blob | null, 
   videoId?: string,
+  videoName?: string,
   onClose: () => void,
   isMuted?: boolean,
   blurEnabled?: boolean,
@@ -63,33 +65,71 @@ export function VideoPlayerModal({
       console.log('Video MIME type:', zipBlob.type);
       
       try {
-        // Check if video needs transcoding (AVI, MKV, etc.)
-        if (needsTranscoding(zipBlob.type)) {
-          console.log('Video needs transcoding, starting FFmpeg...');
-          setIsTranscoding(true);
-          setTranscodingProgress(0);
-          
-          const format = getVideoFormat(zipBlob.type);
-          const transcodedBlob = await transcodeVideo(
-            zipBlob, 
-            format,
-            ({ progress }) => setTranscodingProgress(progress)
-          );
-          
-          setIsTranscoding(false);
-          
-          if (transcodedBlob) {
-            console.log('Transcoding complete, loading video...');
-            const result = await getVideoPreview(transcodedBlob);
-            if (result) {
-              setVideoUrl(result.url);
-              cleanupFn = result.cleanup;
+        console.log('Video MIME type:', zipBlob.type, 'Size:', zipBlob.size);
+        
+        // Use videoName for filename-based detection
+        const filename = videoName || '';
+        console.log('Video filename:', filename);
+        
+        // Check if video needs transcoding - use MIME type or filename
+        const mimeType = zipBlob.type || '';
+        let needsTranscode = needsTranscoding(mimeType);
+        
+        // Also check filename extension if MIME type is generic or missing
+        if (!needsTranscode && filename) {
+          const lowerName = filename.toLowerCase();
+          console.log('Checking filename for transcoding:', lowerName, 'ends with .avi:', lowerName.endsWith('.avi'));
+          if (lowerName.endsWith('.avi') || lowerName.endsWith('.mkv') || lowerName.endsWith('.wmv') || lowerName.endsWith('.flv')) {
+            needsTranscode = true;
+            console.log('Detected need for transcoding from filename:', filename);
+          }
+        }
+        
+        console.log('Needs transcoding:', needsTranscode);
+        
+        if (needsTranscode) {
+          // Check if SharedArrayBuffer is available for FFmpeg
+          const hasSharedArrayBuffer = (() => {
+            try {
+              new SharedArrayBuffer(1);
+              return true;
+            } catch {
+              return false;
             }
+          })();
+          
+          if (!hasSharedArrayBuffer) {
+            console.log('SharedArrayBuffer not available, showing download option');
+            setError('This video format requires transcoding to play in the browser. Your browser does not support the required features. Please download to play locally.');
           } else {
-            setError('Failed to transcode video. Please download to play locally.');
+            console.log('Video needs transcoding, starting FFmpeg...');
+            setIsTranscoding(true);
+            setTranscodingProgress(0);
+            
+            const format = getVideoFormat(zipBlob.type, videoName);
+            console.log('Transcoding format:', format);
+            const transcodedBlob = await transcodeVideo(
+              zipBlob, 
+              format,
+              ({ progress }) => setTranscodingProgress(progress)
+            );
+            
+            setIsTranscoding(false);
+            
+            if (transcodedBlob) {
+              console.log('Transcoding complete, loading video...');
+              const result = await getVideoPreview(transcodedBlob);
+              if (result) {
+                setVideoUrl(result.url);
+                cleanupFn = result.cleanup;
+              }
+            } else {
+              setError('Transcoding failed. Please download to play locally.');
+            }
           }
         } else {
           // Native supported format
+          console.log('Loading native video...');
           const result = await getVideoPreview(zipBlob);
           if (result) {
             console.log('Video loaded successfully:', result.url);
@@ -116,7 +156,7 @@ export function VideoPlayerModal({
         cleanupFn();
       }
     };
-  }, [zipBlob]);
+  }, [zipBlob, videoName]);
 
   // Keyboard controls
   useEffect(() => {
@@ -240,9 +280,10 @@ export function VideoPlayerModal({
   };
 
   const handleVideoError = () => {
-    // Check if it's an unsupported format
-    const isAVI = videoType === 'video/x-msvideo' || videoType.includes('avi');
-    const isMKV = videoType === 'video/x-matroska' || videoType.includes('mkv');
+    // Check if it's an unsupported format using filename
+    const lowerName = (videoName || '').toLowerCase();
+    const isAVI = lowerName.endsWith('.avi');
+    const isMKV = lowerName.endsWith('.mkv');
     
     if (isAVI) {
       setVideoError('AVI files are not supported in browsers. Please download to play locally with VLC or another video player.');
@@ -271,6 +312,25 @@ export function VideoPlayerModal({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleOpenInVLC = () => {
+    if (!zipBlob) return;
+    // Create a temporary URL and try to open in VLC
+    // VLC protocol: vlc://<url> or vlc://open?<url>
+    const url = URL.createObjectURL(zipBlob);
+    const vlcUrl = `vlc://${url}`;
+    
+    // Try to open VLC
+    window.location.href = vlcUrl;
+    
+    // Fallback: show message after short delay
+    setTimeout(() => {
+      alert('If VLC did not open automatically, please download the file and open it manually in VLC.');
+    }, 500);
+    
+    // Clean up the blob URL after a delay
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
   const toggleFullscreen = () => {
@@ -367,13 +427,22 @@ export function VideoPlayerModal({
             <div className="bg-amber-500/10 rounded-2xl border border-amber-500/20 backdrop-blur-md max-w-md text-center p-8">
               <AlertCircle size={48} className="mx-auto mb-4 text-amber-400" />
               <p className="mb-4">{videoError}</p>
-              <button
-                onClick={handleDownload}
-                className="flex items-center gap-2 mx-auto px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-full transition-colors"
-              >
-                <Download size={20} />
-                Download Video
-              </button>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleOpenInVLC}
+                  className="flex items-center gap-2 mx-auto px-4 py-2 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 rounded-full transition-colors"
+                >
+                  <Play size={20} />
+                  Open in VLC
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="flex items-center gap-2 mx-auto px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-full transition-colors"
+                >
+                  <Download size={20} />
+                  Download Video
+                </button>
+              </div>
             </div>
           </div>
         )}

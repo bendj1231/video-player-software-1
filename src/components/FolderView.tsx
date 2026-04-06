@@ -7,20 +7,22 @@ import { Archive } from 'libarchive.js';
 import { VirtualArchiveExplorer } from '../lib/archive';
 import { initializeLocalFolder, saveFileToDirectory, getStoredDirectoryHandle } from '../lib/fileSystem';
 import { extractExifData, getBestDate, groupPhotosByDate } from '../lib/exif';
-import { getVideoPreview } from '../lib/zip';
+import { needsTranscoding, transcodeVideoGenerator, getVideoFormat } from '../lib/ffmpeg';
 
 interface VideoWithPreview extends VideoZip {
   previewUrl?: string;
   cleanup?: () => void;
 }
 
-function VideoCard({ video, onPlay, onViewImage, index, isMuted, onDelete }: { 
+function VideoCard({ video, onPlay, onViewImage, index, isMuted, onDelete, onUpdateVideo }: { 
+  key?: React.Key;
   video: VideoWithPreview; 
   onPlay: () => void;
   onViewImage?: () => void;
   index: number;
   isMuted?: boolean;
   onDelete?: (id: string, name: string) => void;
+  onUpdateVideo?: (updatedVideo: VideoWithPreview) => void;
 }) {
   const [hasError, setHasError] = useState(false);
   const [isVisible, setIsVisible] = useState(index < 12);
@@ -29,8 +31,20 @@ function VideoCard({ video, onPlay, onViewImage, index, isMuted, onDelete }: {
   const [showImageModal, setShowImageModal] = useState(false);
   const [showDeleteButton, setShowDeleteButton] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
+  const [convertProgress, setConvertProgress] = useState(0);
   
   const isImage = video.file.type.startsWith('image/');
+  
+  // Check if video needs conversion
+  const needsConversion = !isImage && (
+    video.name.toLowerCase().endsWith('.avi') ||
+    video.name.toLowerCase().endsWith('.mkv') ||
+    video.name.toLowerCase().endsWith('.wmv') ||
+    video.name.toLowerCase().endsWith('.flv') ||
+    video.file.type === 'video/x-msvideo' ||
+    video.file.type === 'video/x-matroska'
+  );
 
   // Handle drag start
   const handleDragStart = (e: React.DragEvent) => {
@@ -95,6 +109,69 @@ function VideoCard({ video, onPlay, onViewImage, index, isMuted, onDelete }: {
     }
   };
 
+  const handleConvert = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isConverting) return;
+    
+    setIsConverting(true);
+    setConvertProgress(0);
+    
+    try {
+      const format = getVideoFormat(video.file.type, video.name);
+      const generator = transcodeVideoGenerator(video.file, format);
+      
+      let result: { blob: Blob; duration: number } | null = null;
+      
+      for await (const update of generator) {
+        setConvertProgress(update.progress);
+      }
+      
+      // Get final result
+      const final = await generator.next();
+      if (final.done === false && final.value) {
+        result = final.value;
+      }
+      
+      if (result) {
+        // Create new File with MP4 type
+        const newFile = new File([result.blob], `${video.name}.mp4`, { type: 'video/mp4' });
+        
+        // Update video object
+        const updatedVideo: VideoWithPreview = {
+          ...video,
+          name: video.name, // Keep original name without extension
+          file: newFile,
+          previewUrl: URL.createObjectURL(newFile)
+        };
+        
+        // Update in database
+        const db = await dbPromise;
+        await db.put('videoZips', {
+          id: updatedVideo.id,
+          folderId: updatedVideo.folderId,
+          name: updatedVideo.name,
+          file: newFile,
+          createdAt: updatedVideo.createdAt,
+          sourceType: updatedVideo.sourceType,
+          isCached: updatedVideo.isCached
+        });
+        
+        // Notify parent to refresh
+        onUpdateVideo?.(updatedVideo);
+        
+        alert(`Converted "${video.name}" to MP4 successfully!`);
+      } else {
+        alert('Conversion failed. Please try again.');
+      }
+    } catch (err) {
+      console.error('Conversion error:', err);
+      alert('Conversion failed. Please try again.');
+    } finally {
+      setIsConverting(false);
+      setConvertProgress(0);
+    }
+  };
+
   return (
     <>
       <div 
@@ -133,6 +210,31 @@ function VideoCard({ video, onPlay, onViewImage, index, isMuted, onDelete }: {
           )}
         </div>
         
+        {/* Convert Button for non-MP4 videos */}
+        {needsConversion && !isConverting && (
+          <button
+            onClick={handleConvert}
+            className="absolute bottom-2 right-2 p-2 bg-violet-500/80 hover:bg-violet-500 text-white rounded-full transition-all z-10 shadow-lg"
+            title="Convert to MP4"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7,10 12,15 17,10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
+        )}
+
+        {/* Conversion Progress */}
+        {isConverting && (
+          <div className="absolute bottom-2 left-2 right-2 bg-black/80 rounded-full h-1.5 overflow-hidden">
+            <div 
+              className="bg-violet-500 h-full rounded-full transition-all duration-300"
+              style={{ width: `${convertProgress}%` }}
+            />
+          </div>
+        )}
+
         {/* Hidden delete corner - click top-right to reveal delete button */}
         {onDelete && (
           <>
@@ -211,7 +313,122 @@ function VideoCard({ video, onPlay, onViewImage, index, isMuted, onDelete }: {
   );
 }
 
-export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkMode = true, onNavigateToFolder, isMuted }: { folderId: string, onBack: () => void, onPlayVideo: (blob: Blob, videoId: string) => void, blurEnabled?: boolean, isDarkMode?: boolean, onNavigateToFolder?: (folderId: string) => void, isMuted?: boolean }) {
+// Component to load and display contents from a subfolder
+function SubfolderContents({ 
+  subfolder, 
+  blurEnabled, 
+  onNavigateToFolder, 
+  onPlayVideo 
+}: { 
+  key?: React.Key;
+  subfolder: Folder;
+  blurEnabled?: boolean;
+  onNavigateToFolder?: (folderId: string) => void;
+  onPlayVideo: (blob: Blob, videoId: string, videoName?: string) => void;
+}) {
+  const [videos, setVideos] = useState<VideoWithPreview[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadSubfolderContents();
+  }, [subfolder.id]);
+
+  const loadSubfolderContents = async () => {
+    setIsLoading(true);
+    try {
+      console.log(`Loading videos for subfolder: ${subfolder.name} (id: ${subfolder.id})`);
+      const vids = await getVideosByFolder(subfolder.id);
+      console.log(`Found ${vids.length} videos in subfolder ${subfolder.name}:`, vids.map(v => v.name));
+      
+      // Generate previews
+      const withPreviews = await Promise.all(
+        vids.map(async (video) => {
+          try {
+            const result = await getVideoPreview(video.file, video.name);
+            return {
+              ...video,
+              previewUrl: result?.url,
+              cleanup: result?.cleanup
+            } as VideoWithPreview;
+          } catch {
+            return { ...video } as VideoWithPreview;
+          }
+        })
+      );
+      
+      setVideos(withPreviews);
+    } catch (err) {
+      console.error('Error loading subfolder contents:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="px-6">
+        <div className="flex items-center gap-2 mb-3">
+          <FolderOpen size={18} className="text-zinc-500" />
+          <h3 className="text-lg font-medium text-white">{subfolder.name}</h3>
+          <span className="text-zinc-500 text-sm">Loading...</span>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="w-32 h-48 bg-zinc-800/50 rounded-lg animate-pulse shrink-0" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (videos.length === 0) {
+    return (
+      <div className={`px-6 ${blurEnabled ? 'blur-[20px]' : ''}`}>
+        <button 
+          onClick={() => onNavigateToFolder?.(subfolder.id)}
+          className="flex items-center gap-2 mb-3 group hover:text-violet-400 transition-colors"
+        >
+          <FolderOpen size={18} className="text-emerald-400" />
+          <h3 className="text-lg font-medium text-white group-hover:text-violet-400">{subfolder.name}</h3>
+          <ChevronRight size={16} className="text-zinc-500 group-hover:translate-x-1 transition-transform" />
+        </button>
+        <p className="text-zinc-500 text-sm ml-6">No content yet</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`px-6 ${blurEnabled ? 'blur-[20px]' : ''}`}>
+      <button 
+        onClick={() => onNavigateToFolder?.(subfolder.id)}
+        className="flex items-center gap-2 mb-3 group hover:text-violet-400 transition-colors"
+      >
+        <FolderOpen size={18} className="text-emerald-400" />
+        <h3 className="text-lg font-medium text-white group-hover:text-violet-400">{subfolder.name}</h3>
+        <span className="text-zinc-500 text-sm">({videos.length} items)</span>
+        <ChevronRight size={16} className="text-zinc-500 group-hover:translate-x-1 transition-transform" />
+      </button>
+      
+      {/* Horizontal scrolling row of videos */}
+      <div className="flex gap-2 overflow-x-auto pb-4 hide-scrollbar">
+        {videos.map((video, index) => (
+          <div key={video.id} className="shrink-0 w-32 sm:w-40">
+            <VideoCard
+              video={video}
+              onPlay={() => onPlayVideo(video.file, video.id, video.name)}
+              index={index}
+              onUpdateVideo={(updated) => {
+                setVideos(prev => prev.map(v => v.id === updated.id ? updated : v));
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkMode = true, onNavigateToFolder, isMuted }: { folderId: string, onBack: () => void, onPlayVideo: (blob: Blob, videoId: string, videoName?: string) => void, blurEnabled?: boolean, isDarkMode?: boolean, onNavigateToFolder?: (folderId: string) => void, isMuted?: boolean }) {
   const [videos, setVideos] = useState<VideoWithPreview[]>([]);
   const [folderName, setFolderName] = useState('');
   const [folder, setFolder] = useState<Folder | null>(null);
@@ -232,6 +449,9 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
   const imageInputRef = useRef<HTMLInputElement>(null);
   const folderContentsInputRef = useRef<HTMLInputElement>(null);
 
+  const [isBrowsingLocal, setIsBrowsingLocal] = useState(false);
+  const videosSectionRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     return () => {
       videos.forEach(v => v.cleanup?.());
@@ -243,11 +463,108 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     initializeFolder();
   }, [folderId]);
 
+  // Scroll to bottom (videos section) when videos load
+  useEffect(() => {
+    if (videos.length > 0 && videosSectionRef.current) {
+      setTimeout(() => {
+        videosSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, [videos.length]);
+
+  // Browse local files without importing to database
+  const browseLocalFiles = async (handle: FileSystemDirectoryHandle) => {
+    setIsBrowsingLocal(true);
+    const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
+    
+    const browsedVideos: VideoWithPreview[] = [];
+    
+    try {
+      // @ts-ignore
+      for await (const entry of handle.values()) {
+        if (entry.kind === 'file') {
+          const fileName = entry.name.toLowerCase();
+          const isVideo = videoExtensions.some(ext => fileName.endsWith(ext));
+          const isImage = imageExtensions.some(ext => fileName.endsWith(ext));
+          
+          if (isVideo || isImage) {
+            try {
+              const file = await entry.getFile();
+              let mimeType = 'application/octet-stream';
+              
+              if (isImage) {
+                mimeType = fileName.endsWith('.png') ? 'image/png' :
+                          fileName.endsWith('.gif') ? 'image/gif' :
+                          fileName.endsWith('.webp') ? 'image/webp' :
+                          fileName.endsWith('.bmp') ? 'image/bmp' :
+                          fileName.endsWith('.tiff') || fileName.endsWith('.tif') ? 'image/tiff' :
+                          fileName.endsWith('.svg') ? 'image/svg+xml' :
+                          'image/jpeg';
+              } else {
+                mimeType = fileName.endsWith('.webm') ? 'video/webm' :
+                          fileName.endsWith('.mov') ? 'video/quicktime' :
+                          fileName.endsWith('.mkv') ? 'video/x-matroska' :
+                          fileName.endsWith('.avi') ? 'video/x-msvideo' :
+                          fileName.endsWith('.ogv') ? 'video/ogg' :
+                          'video/mp4';
+              }
+              
+              // Create a proper File object with correct MIME type
+              const typedFile = new File([file], entry.name, { type: mimeType });
+              
+              const video: VideoWithPreview = {
+                id: `local-${entry.name}`,
+                folderId: folderId,
+                name: entry.name.replace(/\.[^/.]+$/, ''),
+                file: typedFile,
+                createdAt: Date.now(),
+                sourceType: 'local',
+                isCached: false,
+              };
+              
+              // Generate preview
+              const result = await getVideoPreview(typedFile, entry.name);
+              if (result) {
+                video.previewUrl = result.url;
+                video.cleanup = result.cleanup;
+              }
+              
+              browsedVideos.push(video);
+            } catch (err) {
+              console.error('Error reading file:', entry.name, err);
+            }
+          }
+        }
+      }
+      
+      setVideos(browsedVideos);
+    } catch (err: any) {
+      console.error('Error browsing local files:', err);
+      // Handle NotFoundError gracefully - folder may have been moved or permissions expired
+      if (err?.name === 'NotFoundError') {
+        console.log('Local folder no longer accessible, clearing stored handle');
+        // Optionally clear the stored handle
+        // await clearStoredDirectoryHandle(folderId);
+      }
+      // Don't show alert - just silently fail and let user use import instead
+    } finally {
+      setIsBrowsingLocal(false);
+    }
+  };
+
   async function initializeFolder() {
     // Try to get existing local folder handle
     const existingHandle = await getStoredDirectoryHandle(folderId);
     if (existingHandle) {
       setLocalFolderHandle(existingHandle);
+      
+      // Check if folder has any imported videos
+      const vids = await getVideosByFolder(folderId);
+      if (vids.length === 0) {
+        // No imported videos - browse local files directly
+        browseLocalFiles(existingHandle);
+      }
       return;
     }
   }
@@ -423,12 +740,33 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     const childFolders = await getSubfolders(folderId);
     setSubfolders(childFolders);
     
+    // Load videos from current folder
+    let allVideos: VideoZip[] = [];
     const vids = await getVideosByFolder(folderId);
+    console.log(`FolderView loadData: Found ${vids.length} videos directly in folder ${folderId}`);
+    allVideos = [...vids];
     
-    // Fix file types for videos that might have lost their type (from archive extraction)
-    const fixedVids = vids.map(video => {
+    // If no videos in current folder but has subfolders, load from subfolders
+    if (vids.length === 0 && childFolders.length > 0) {
+      console.log(`No videos in parent, loading from ${childFolders.length} subfolders...`);
+      for (const child of childFolders) {
+        const childVids = await getVideosByFolder(child.id);
+        console.log(`  Subfolder ${child.name} (${child.id}): ${childVids.length} videos`);
+        allVideos = [...allVideos, ...childVids];
+      }
+    }
+    
+    // Check if we have a local handle - if so and no videos in db, browse local files
+    const existingHandle = await getStoredDirectoryHandle(folderId);
+    if (existingHandle && allVideos.length === 0) {
+      setLocalFolderHandle(existingHandle);
+      await browseLocalFiles(existingHandle);
+      return;
+    }
+    
+    // Fix file types and generate previews
+    const fixedVids = allVideos.map(video => {
       if (!video.file.type || video.file.type === 'application/octet-stream') {
-        // Infer type from filename
         const name = video.name.toLowerCase();
         let mimeType = '';
         if (name.endsWith('.mp4') || name.endsWith('.m4v') || name.endsWith('.mcgi')) mimeType = 'video/mp4';
@@ -443,7 +781,6 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
         else if (name.endsWith('.bmp')) mimeType = 'image/bmp';
         
         if (mimeType) {
-          // Create new File with correct type - use original filename from video.file if available
           const originalName = (video.file as File).name || video.name;
           const newFile = new File([video.file], originalName, { type: mimeType });
           return { ...video, file: newFile };
@@ -452,30 +789,22 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
       return video;
     });
     
-    // Generate previews for ALL videos (Grok style)
+    // Generate previews for ALL videos
     const withPreviews = await Promise.all(
       fixedVids.map(async (video, i) => {
         try {
-          console.log(`Generating preview for ${video.name}, file type: ${video.file.type}, size: ${video.file.size}`);
           const result = await getVideoPreview(video.file, video.name);
-          if (!result) {
-            console.warn(`No preview generated for ${video.name}`);
-          } else {
-            console.log(`Preview generated for ${video.name}: ${result.url.substring(0, 50)}...`);
-          }
           return {
             ...video,
             previewUrl: result?.url,
             cleanup: result?.cleanup
-          };
+          } as VideoWithPreview;
         } catch (err) {
-          console.error(`Error generating preview for ${video.name}:`, err);
-          return { ...video };
+          return { ...video } as VideoWithPreview;
         }
       })
     );
     
-    console.log(`Loaded ${withPreviews.length} videos, ${withPreviews.filter(v => v.previewUrl).length} with previews`);
     setVideos(withPreviews);
     
     // Process photo grouping if enabled
@@ -496,7 +825,7 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
           const date = getBestDate(exifData);
           return { ...photo, date };
         } catch {
-          return { ...photo, date: undefined };
+          return { ...photo, date: undefined } as VideoWithPreview;
         }
       })
     );
@@ -524,6 +853,8 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     }
   };
 
+  const processedFilesRef = useRef<Set<string>>(new Set());
+
   const processFiles = async (files: FileList) => {
     if (!files || files.length === 0) return;
 
@@ -534,17 +865,26 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      
+      // Create unique key for this file to prevent duplicates
+      const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+      if (processedFilesRef.current.has(fileKey)) {
+        console.log(`Skipping duplicate file: ${file.name}`);
+        continue;
+      }
+      processedFilesRef.current.add(fileKey);
+      
       const fileName = file.name.toLowerCase();
       const isVideo = videoExtensions.some(ext => fileName.endsWith(ext));
       const isImage = imageExtensions.some(ext => fileName.endsWith(ext));
-      const isZip = fileName.endsWith('.zip');
+      const isZip = fileName.endsWith('.zip') || fileName.endsWith('.7z') || fileName.endsWith('.rar') || fileName.endsWith('.tar') || fileName.endsWith('.gz') || fileName.endsWith('.bz2');
       
       if (!isVideo && !isImage && !isZip) continue;
 
       const newVideo: VideoZip = {
         id: crypto.randomUUID(),
         folderId,
-        name: file.name.replace(/\.(zip|mp4|webm|mov|mkv|avi|m4v|mcgi|m2ts|ts|m2t|mts|m4p|3gp|3g2|flv|f4v|wmv|asf|ogv|ogg|ogm|divx|xvid|dv|qt|mqv|hevc|h265|h264|jpg|jpeg|png|gif|webp|bmp|tiff|tif|svg|ico|raw|cr2|nef|arw|dng)$/i, ''),
+        name: file.name.replace(/\.(zip|7z|rar|tar|gz|bz2|mp4|webm|mov|mkv|avi|m4v|mcgi|m2ts|ts|m2t|mts|m4p|3gp|3g2|flv|f4v|wmv|asf|ogv|ogg|ogm|divx|xvid|dv|qt|mqv|hevc|h265|h264|jpg|jpeg|png|gif|webp|bmp|tiff|tif|svg|ico|raw|cr2|nef|arw|dng)$/i, ''),
         file,
         createdAt: Date.now(),
         sourceType: 'local',
@@ -556,20 +896,29 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     await loadData();
     setIsUploading(false);
     
+    // Clear processed files after a delay
+    setTimeout(() => {
+      processedFilesRef.current.clear();
+    }, 1000);
+    
     if (fileCount > 0) {
       alert(`Added ${fileCount} file(s) to gallery.`);
     }
   };
 
   const handleUploadZip = async (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      await processFiles(e.target.files);
-    }
+    const files = e.target.files;
+    // Clear input value immediately to prevent duplicate onChange events
     if (fileInputRef.current) fileInputRef.current.value = '';
+    if (files) {
+      await processFiles(files);
+    }
   };
 
   const handleUploadFolderContents = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
+    // Clear input value immediately to prevent duplicate onChange events
+    if (folderContentsInputRef.current) folderContentsInputRef.current.value = '';
     if (!files || files.length === 0) return;
     
     setIsUploadingFolder(true);
@@ -577,20 +926,30 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     const videoExtensions = ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.mcgi', '.m2ts', '.ts', '.m2t', '.mts', '.m4p', '.3gp', '.3g2', '.flv', '.f4v', '.wmv', '.asf', '.ogv', '.ogg', '.ogm', '.divx', '.xvid', '.dv', '.qt', '.mqv', '.hevc', '.h265', '.h264'];
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg', '.ico', '.raw', '.cr2', '.nef', '.arw', '.dng', '.jfif'];
     let fileCount = 0;
+    const processedFiles = new Set<string>();
     
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      
+      // Create unique key for this file to prevent duplicates
+      const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+      if (processedFiles.has(fileKey)) {
+        console.log(`Skipping duplicate file in folder upload: ${file.name}`);
+        continue;
+      }
+      processedFiles.add(fileKey);
+      
       const fileName = file.name.toLowerCase();
       const isVideo = videoExtensions.some(ext => fileName.endsWith(ext));
       const isImage = imageExtensions.some(ext => fileName.endsWith(ext));
-      const isZip = fileName.endsWith('.zip');
+      const isZip = fileName.endsWith('.zip') || fileName.endsWith('.7z') || fileName.endsWith('.rar') || fileName.endsWith('.tar') || fileName.endsWith('.gz') || fileName.endsWith('.bz2');
       
       if (!isVideo && !isImage && !isZip) continue;
 
       const newVideo: VideoZip = {
         id: crypto.randomUUID(),
         folderId,
-        name: file.name.replace(/\.(zip|mp4|webm|mov|mkv|avi|m4v|mcgi|m2ts|ts|m2t|mts|m4p|3gp|3g2|flv|f4v|wmv|asf|ogv|ogg|ogm|divx|xvid|dv|qt|mqv|hevc|h265|h264|jpg|jpeg|png|gif|webp|bmp|tiff|tif|svg|ico|raw|cr2|nef|arw|dng)$/i, ''),
+        name: file.name.replace(/\.(zip|7z|rar|tar|gz|bz2|mp4|webm|mov|mkv|avi|m4v|mcgi|m2ts|ts|m2t|mts|m4p|3gp|3g2|flv|f4v|wmv|asf|ogv|ogg|ogm|divx|xvid|dv|qt|mqv|hevc|h265|h264|jpg|jpeg|png|gif|webp|bmp|tiff|tif|svg|ico|raw|cr2|nef|arw|dng)$/i, ''),
         file,
         createdAt: Date.now(),
         sourceType: 'local',
@@ -608,8 +967,6 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     } else {
       alert("No video or image files found in the selected folder.");
     }
-    
-    if (folderContentsInputRef.current) folderContentsInputRef.current.value = '';
   };
 
   const handleRefreshFolder = async () => {
@@ -924,7 +1281,7 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto bg-[#020202]">
+      <div className="flex-1 overflow-y-auto bg-[#020202]" ref={videosSectionRef}>
         {/* Videos Section */}
         <div className={`columns-2 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 gap-1 ${blurEnabled ? 'blur-[20px]' : ''}`}>
           {videoItems.map((video, index) => (
@@ -932,9 +1289,12 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
               key={video.id}
               video={video} 
               index={index}
-              onPlay={() => onPlayVideo(video.file, video.id)}
+              onPlay={() => onPlayVideo(video.file, video.id, video.name)}
               isMuted={isMuted}
               onDelete={(id, name) => handleDelete(id, name)}
+              onUpdateVideo={(updated) => {
+                setVideos(prev => prev.map(v => v.id === updated.id ? updated : v));
+              }}
             />
           ))}
         </div>
@@ -955,13 +1315,31 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
                   onPlay={() => onPlayVideo(photo.file, photo.id)}
                   isMuted={isMuted}
                   onDelete={(id, name) => handleDelete(id, name)}
+                  onUpdateVideo={(updated) => {
+                    setVideos(prev => prev.map(v => v.id === updated.id ? updated : v));
+                  }}
                 />
               ))}
             </div>
           </>
         )}
         
-        {videos.length === 0 && (
+        {/* Show videos grouped by subfolder when there are no direct videos */}
+        {videos.length === 0 && subfolders.length > 0 && (
+          <div className={`space-y-8 ${blurEnabled ? 'blur-[20px]' : ''}`}>
+            {subfolders.map((subfolder) => (
+              <SubfolderContents 
+                key={subfolder.id}
+                subfolder={subfolder}
+                blurEnabled={blurEnabled}
+                onNavigateToFolder={onNavigateToFolder}
+                onPlayVideo={onPlayVideo}
+              />
+            ))}
+          </div>
+        )}
+        
+        {videos.length === 0 && subfolders.length === 0 && (
           <div className="col-span-full flex flex-col items-center justify-center py-32 text-zinc-400">
             <p className="text-lg">No videos or photos yet</p>
           </div>
@@ -972,7 +1350,7 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4">
         <div className="bg-zinc-900/90 backdrop-blur-xl rounded-full px-4 py-3 flex items-center gap-3 shadow-2xl border border-white/10">
           {/* Hidden file inputs */}
-          <input type="file" accept=".zip,video/mp4,video/webm,video/quicktime,video/x-matroska,video/avi,video/x-m4v,image/jpeg,image/png,image/gif,image/webp,image/jpg" multiple className="hidden" ref={fileInputRef} onChange={handleUploadZip} />
+          <input type="file" accept=".zip,.7z,video/mp4,video/webm,video/quicktime,video/x-matroska,video/avi,video/x-m4v,image/jpeg,image/png,image/gif,image/webp,image/jpg" multiple className="hidden" ref={fileInputRef} onChange={handleUploadZip} />
           <input type="file" webkitdirectory directory className="hidden" ref={folderContentsInputRef} onChange={handleUploadFolderContents} />
           
           <div className="group relative">
@@ -1045,7 +1423,7 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
             )}
             {localFolderHandle && (
               <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                {isSyncing ? 'Syncing...' : 'Sync All to Local'}
+                {isSyncing ? 'Syncing...' : 'Sync to Local'}
               </span>
             )}
           </div>

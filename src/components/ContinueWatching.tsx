@@ -5,7 +5,7 @@ import { getVideoPreview } from '../lib/zip';
 import { clsx } from 'clsx';
 
 interface ContinueWatchingProps {
-  onPlayVideo: (blob: Blob, videoId: string) => void;
+  onPlayVideo: (blob: Blob, videoId: string, videoName?: string) => void;
   blurEnabled?: boolean;
 }
 
@@ -142,7 +142,7 @@ export function ContinueWatching({ onPlayVideo, blurEnabled }: ContinueWatchingP
                 "relative shrink-0 snap-start cursor-pointer transition-all duration-300 group",
                 isFourth ? "w-[500px] scale-105 z-10" : "w-80 hover:scale-[1.02]"
               )}
-              onClick={() => onPlayVideo(video.file, video.id)}
+              onClick={() => onPlayVideo(video.file, video.id, video.name)}
             >
               <div className={clsx(
                 "relative aspect-video rounded-2xl overflow-hidden glass-card",

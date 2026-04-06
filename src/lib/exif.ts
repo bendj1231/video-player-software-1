@@ -154,7 +154,7 @@ export function getBestDate(exifData: ExifData): Date | null {
 // Group photos by date based on time proximity
 // Default: photos within 4 hours of each other are considered a "group"
 export function groupPhotosByDate(
-  photos: { id: string; file: File; date?: Date }[],
+  photos: { id: string; file: Blob; date?: Date }[],
   timeGapMinutes: number = 240 // 4 hours default
 ): Map<string, typeof photos> {
   const groups = new Map<string, typeof photos>();

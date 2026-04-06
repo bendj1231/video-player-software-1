@@ -4,7 +4,7 @@ import { Play, Clock } from 'lucide-react';
 import { extractVideoFromZip } from '../lib/zip';
 
 interface RecentVideosProps {
-  onPlayVideo: (blob: Blob, videoId: string) => void;
+  onPlayVideo: (blob: Blob, videoId: string, videoName?: string) => void;
   limit?: number;
   blurEnabled?: boolean;
 }
@@ -81,7 +81,7 @@ export function RecentVideos({ onPlayVideo, limit = 8, blurEnabled = false }: Re
         <div 
           key={video.id} 
           className="snap-center shrink-0 w-[85vw] sm:w-[400px] group glass-card rounded-[2rem] overflow-hidden aspect-video flex flex-col transition-all hover:scale-[1.02] hover:shadow-2xl"
-          onClick={() => onPlayVideo(video.file, video.id)}
+          onClick={() => onPlayVideo(video.file, video.id, video.name)}
         >
           <div className="flex-1 relative bg-black">
             {video.previewUrl ? (
