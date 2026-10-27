@@ -1075,7 +1075,7 @@ export function FolderView({ folderId, onBack, onPlayVideo, blurEnabled, isDarkM
     try {
       // Initialize libarchive
       await Archive.init({
-        workerUrl: '/libarchive.js/worker-bundle.js'
+        workerUrl: 'libarchive.js/worker-bundle.js'
       });
 
       // Open the archive

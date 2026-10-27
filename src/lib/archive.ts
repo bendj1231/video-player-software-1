@@ -31,7 +31,7 @@ let libArchiveInitialized = false;
 async function initLibArchive() {
   if (!libArchiveInitialized) {
     await Archive.init({
-      workerUrl: '/libarchive.js/worker-bundle.js'
+      workerUrl: 'libarchive.js/worker-bundle.js'
     });
     libArchiveInitialized = true;
   }

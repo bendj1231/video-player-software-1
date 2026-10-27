@@ -1,14 +1,16 @@
 {
-  "name": "react-example",
+  "name": "wmplayer",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "version": "1.0.0",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "clean": "rm -rf dist dist-electron",
+    "lint": "tsc --noEmit",
+    "start": "env -u ELECTRON_RUN_AS_NODE electron .",
+    "package": "electron-packager . WMPlayer --platform=darwin --arch=arm64 --out=. --overwrite --asar"
   },
   "dependencies": {
     "@capacitor/cli": "^8.3.0",
@@ -37,14 +39,22 @@
     "vite": "^6.2.0"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "electron": "^33.4.11",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "esbuild@0.27.4": true,
+    "esbuild@0.25.12": true,
+    "@swc/core@1.15.24": true
   }
 }

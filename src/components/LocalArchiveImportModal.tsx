@@ -99,7 +99,7 @@ export function LocalArchiveImportModal({ onClose, onSuccess }: LocalArchiveImpo
 
       // Initialize libarchive directly
       await Archive.init({
-        workerUrl: '/libarchive.js/worker-bundle.js'
+        workerUrl: 'libarchive.js/worker-bundle.js'
       });
 
       // Open the archive fresh

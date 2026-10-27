@@ -30,3 +30,6 @@ cache/
 .videos/
 .photos/
 .vercel
+
+# Packaged app output
+WMPlayer-darwin-arm64/

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { clsx } from 'clsx';
 import { getCacheSettings, setCacheSettings, CACHE_SIZE_OPTIONS, formatSize } from '../lib/storageCache';
 import { getVideosByFolder, getFolders, dbPromise } from '../lib/db';
+import { isElectron, getStorageDir, pickStorageDir, getStorageStats, formatBytes } from '../lib/electronStorage';
 
 interface ThemeSettingsModalProps {
   isOpen: boolean;
@@ -85,6 +86,33 @@ export function ThemeSettingsModal({ isOpen, onClose }: ThemeSettingsModalProps)
   const [cacheSettings, setCacheSettingsState] = useState(getCacheSettings());
   const [currentCacheSize, setCurrentCacheSize] = useState(0);
   const [isCalculatingCache, setIsCalculatingCache] = useState(false);
+  const [storageDir, setStorageDir] = useState<string | null>(null);
+  const [diskStats, setDiskStats] = useState<{ videos: number; photos: number; used: number; free: number; total: number } | null>(null);
+
+  const electron = isElectron();
+
+  const refreshDiskStats = async () => {
+    const stats = await getStorageStats();
+    if (stats) {
+      setStorageDir(stats.dir);
+      setDiskStats({ videos: stats.videos, photos: stats.photos, used: stats.usedBytes, free: stats.freeBytes, total: stats.totalBytes });
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && electron) {
+      refreshDiskStats();
+      if (!storageDir) getStorageDir().then(setStorageDir);
+    }
+  }, [isOpen, electron]);
+
+  const handleChangeStorageDir = async () => {
+    const dir = await pickStorageDir();
+    if (dir) {
+      setStorageDir(dir);
+      refreshDiskStats();
+    }
+  };
 
   useEffect(() => {
     const detected = detectDevice();
@@ -246,6 +274,51 @@ export function ThemeSettingsModal({ isOpen, onClose }: ThemeSettingsModalProps)
                   );
                 })}
               </div>
+
+              {/* Media Storage Location (Electron only) */}
+              {electron && (
+                <div className="p-4 border-t border-white/10">
+                  <div className="flex items-center gap-3 mb-3">
+                    <HardDrive size={20} className="text-zinc-400" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-zinc-400">Media Storage Location</p>
+                      <p className="text-white font-medium text-xs truncate" title={storageDir || ''}>
+                        {storageDir || 'Loading...'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {diskStats && (
+                    <>
+                      <p className="text-sm text-zinc-300 mb-1">
+                        {formatBytes(diskStats.used)} in library · {diskStats.videos} videos · {diskStats.photos} photos
+                      </p>
+                      <p className="text-xs text-zinc-500 mb-2">
+                        {formatBytes(diskStats.free)} free of {formatBytes(diskStats.total)} on disk
+                      </p>
+                      <div className="h-2 bg-zinc-800 rounded-full overflow-hidden mb-3">
+                        <div
+                          className={clsx(
+                            "h-full transition-all duration-300",
+                            diskStats.free / diskStats.total < 0.1 ? 'bg-red-500' : 'bg-emerald-500'
+                          )}
+                          style={{ width: `${Math.min(100, ((diskStats.total - diskStats.free) / diskStats.total) * 100)}%` }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <button
+                    onClick={handleChangeStorageDir}
+                    className="w-full py-2 px-4 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-all text-sm"
+                  >
+                    Change Storage Folder…
+                  </button>
+                  <p className="text-xs text-zinc-500 mt-2">
+                    Videos and photos are stored as real files here — no browser quota limits.
+                  </p>
+                </div>
+              )}
 
               {/* Storage / Cache Settings */}
               <div className="p-4 border-t border-white/10">

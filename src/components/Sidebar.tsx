@@ -94,7 +94,9 @@ export function Sidebar({
   isOpen: externalIsOpen,
   setIsOpen: externalSetIsOpen,
   onOpenSettings,
-  onSelectFolder
+  onSelectFolder,
+  peekEnabled,
+  onTogglePeek
 }: { 
   currentView: string, 
   setView: (v: string) => void,
@@ -102,6 +104,8 @@ export function Sidebar({
   setBlurEnabled: (v: boolean) => void,
   privacyMode?: 'none' | 'blur' | 'cover',
   setPrivacyMode?: (mode: 'none' | 'blur' | 'cover') => void,
+  peekEnabled?: boolean,
+  onTogglePeek?: () => void,
   isMuted: boolean,
   setIsMuted: (v: boolean) => void,
   onClearCache?: () => void,
@@ -328,6 +332,17 @@ export function Sidebar({
           }} 
         />
         
+        {(privacyMode === 'blur' || privacyMode === 'cover') && onTogglePeek && (
+          <SidebarItem
+            icon={<Eye size={28} />}
+            label={peekEnabled ? "Peek: On" : "Peek: Off"}
+            isOpen={isOpen}
+            active={!!peekEnabled}
+            activeColor="amber"
+            onClick={onTogglePeek}
+          />
+        )}
+
         <SidebarItem 
           icon={isMuted ? <VolumeX size={28} /> : <Volume2 size={28} />} 
           label={isMuted ? "Muted" : "Unmuted"} 

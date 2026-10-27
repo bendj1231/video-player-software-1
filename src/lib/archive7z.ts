@@ -13,7 +13,7 @@ export async function init7zWasm(): Promise<any> {
       sevenZipModule = await (window as any).SevenZip({
         locateFile: (path: string) => {
           if (path.endsWith('.wasm')) {
-            return '/7z-wasm/7zz.wasm';
+            return '7z-wasm/7zz.wasm';
           }
           return path;
         }
@@ -22,7 +22,7 @@ export async function init7zWasm(): Promise<any> {
     }
     
     // Dynamically load the UMD script (works as classic script)
-    await loadScript('/7z-wasm/7zz.umd.js');
+    await loadScript('7z-wasm/7zz.umd.js');
     
     // Wait for it to be available
     let retries = 0;
@@ -38,7 +38,7 @@ export async function init7zWasm(): Promise<any> {
     sevenZipModule = await (window as any).SevenZip({
       locateFile: (path: string) => {
         if (path.endsWith('.wasm')) {
-          return '/7z-wasm/7zz.wasm';
+          return '7z-wasm/7zz.wasm';
         }
         return path;
       }
